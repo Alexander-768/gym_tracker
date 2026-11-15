@@ -7,7 +7,7 @@ const TAB="gym_tracker_app";
 const HEADERS=["id","date","exercise","weight_kg","reps","sets","note","created_at","updated_at","deleted_at"];
 const SCOPE="https://www.googleapis.com/auth/spreadsheets";
 const $=id=>document.getElementById(id);
-let accessToken=null,expiresAt=0,client=null,busy=false,writeQueue=Promise.resolve();
+let accessToken=null,expiresAt=0,client=null,busy=false,needsResync=false,writeQueue=Promise.resolve();
 const status=msg=>{if($("sheetsStatus"))$("sheetsStatus").textContent=msg;};
 const quote=tab=>"'"+tab.replace(/'/g,"''")+"'";
 async function api(path,options={}) {
@@ -47,7 +47,7 @@ const tombstoneKey="gym_tracker_tombstones_v1";
 const tombstones=()=>{try{return JSON.parse(localStorage.getItem(tombstoneKey)||"{}")}catch{return {}}};
 const markDelete=id=>{const t=tombstones();t[id]=Date.now();localStorage.setItem(tombstoneKey,JSON.stringify(t));};
 async function syncNow(){
- if(busy||!accessToken)return;
+ if(!accessToken)return; if(busy){needsResync=true;return;}
  busy=true;$("syncSheets").disabled=true;status("Синхронизация...");
  try{
   await ensureTab();
@@ -73,7 +73,7 @@ async function syncNow(){
   localStorage.setItem(tombstoneKey,JSON.stringify(del));
   if(typeof window.gymRefresh==="function")await window.gymRefresh();
   status("✓ Синхронизировано: "+new Date().toLocaleTimeString("ru-RU")+". Записей в облаке: "+merged.size);
- }catch(e){status("Ошибка: "+e.message)}finally{busy=false;$("syncSheets").disabled=false;}
+ }catch(e){status("Ошибка: "+e.message)}finally{busy=false;$("syncSheets").disabled=false;if(needsResync){needsResync=false;void syncNow();}}
 }
 async function inspect(){
  try{status("Загружаю вкладки...");const all=await sheets();$("sheetTabs").innerHTML=all.map(x=>"<div>"+escapeHtml(x.title)+(x.title===TAB?" — вкладка приложения":" — без изменений")+"</div>").join("");status("Подключено. Вкладки показаны ниже.");}
@@ -92,7 +92,7 @@ function connect(){
  client.requestAccessToken({prompt:accessToken?"":"select_account"});
 }
 window.gymSheetDeleted=markDelete;
-window.gymSheetChanged=()=>{if(accessToken && !busy)writeQueue=writeQueue.then(()=>syncNow()).catch(()=>{});};
+window.gymSheetChanged=()=>{if(accessToken)writeQueue=writeQueue.then(()=>syncNow()).catch(()=>{});};
 window.gymSheetSync=syncNow;
 $("connectSheets").addEventListener("click",connect);
 $("syncSheets").addEventListener("click",syncNow);
