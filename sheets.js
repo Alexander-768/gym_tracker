@@ -160,11 +160,19 @@ async function syncNow(){
   await ensureTab();
   const rr=(await rows()).map(remoteRecord),rmap=new Map(rr.map(x=>[x.id,x]));
   const local=await getLocal(),lmap=new Map(local.map(x=>[x.id,x]));
-  const del=tombstones();const merged=new Map();
+  // Migration fence prevents stale test entries on a second device from
+  // being resurrected after the canonical journal was replaced.
+  const migrationFence=Math.max(0,...rr.filter(e=>String(e.id).startsWith("legacy:")).map(e=>Number(e.createdAt)||0));
+  const staleLocal=local.filter(e=>migrationFence>1000000000000&&!rmap.has(e.id)&&!String(e.id).startsWith("legacy:")&&Number(e.createdAt||0)<migrationFence);
+  const staleIds=new Set(staleLocal.map(e=>e.id));
+  const del=tombstones();
+  for(const [id,at] of Object.entries(del))
+   if(migrationFence>1000000000000&&!rmap.has(id)&&Number(at)<migrationFence)delete del[id];
+  const merged=new Map();
   for(const x of rr)merged.set(x.id,x);
-  for(const x of local){const old=merged.get(x.id);if(!old || Number(x.updatedAt)>=Number(old.updatedAt))merged.set(x.id,x);}
+  for(const x of local){if(staleIds.has(x.id))continue;const old=merged.get(x.id);if(!old || Number(x.updatedAt)>=Number(old.updatedAt))merged.set(x.id,x);}
   for(const [id,at] of Object.entries(del)){const old=merged.get(id);if(!old||Number(at)>Number(old.updatedAt))merged.set(id,{id,deletedAt:Number(at),updatedAt:Number(at),createdAt:old?.createdAt||Number(at),date:old?.date||"",exercise:old?.exercise||"",weight:old?.weight||0,reps:old?.reps||0,sets:old?.sets||0,note:old?.note||""});}
-  const toSave=[],toDelete=[],updates=[],appends=[];
+  const toSave=[],toDelete=[...staleIds],updates=[],appends=[];
   for(const e of merged.values()){
    const isDeleted=Number(e.deletedAt)>0;
    const localOld=lmap.get(e.id);
@@ -276,6 +284,8 @@ async function commitMigration(){
  migrationBusy=true;
  try{
   // Backup of data being replaced, kept locally (and downloadable by the user).
+  const migrationTime=Date.now();
+  job.imported=job.imported.map(e=>({...e,createdAt:migrationTime,updatedAt:migrationTime}));
   const backup={exportedAt:new Date().toISOString(),source:"before_migration",remote:job.canonical,local:job.existingLocal};
   try{localStorage.setItem(MIGRATION_KEY,JSON.stringify(backup));}catch(e){throw Error("Не удалось сохранить резервную копию в браузере: "+e.message);}
   publishSync("syncing","Переношу старую историю в единую таблицу...");
