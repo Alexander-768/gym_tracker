@@ -6,7 +6,7 @@ const TABS=["Общий вес","Грудь","Ноги","Руки","Спина �
 const CACHE="gym_ui_active_tab_v2";
 const icons={"Грудь":"◈","Ноги":"♧","Руки":"◉","Спина и плечи":"✦","Другое":"☷"};
 let active=TABS.includes(localStorage.getItem(CACHE))?localStorage.getItem(CACHE):"Общий вес";
-let detail=null,showAll=false,modal=null,lastStatus="",writing=false;
+let detail=null,showAll=false,modal=null,lastStatus="",writing=false,settingsMode=false;
 let root=$("modernApp");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nfmt=(v,d=1)=>Number(v).toLocaleString("ru-RU",{maximumFractionDigits:d});
@@ -20,7 +20,7 @@ function points(records){return [...records].filter(x=>/^\d{4}-\d{2}-\d{2}$/.tes
 function chart(records,large=false){
  const ps=points(records);
  if(!ps.length)return '<div class="m-empty">Пока недостаточно данных для графика</div>';
- const daily=new Map();for(const e of ps)daily.set(e.date,Number(e.weight));
+ const daily=new Map();for(const e of ps)daily.set(e.date,Math.max(Number(e.weight),daily.get(e.date)??-Infinity));
  const vals=[...daily].map(([date,weight])=>({date,weight}));
  const min=Math.min(...vals.map(v=>v.weight)),max=Math.max(...vals.map(v=>v.weight));
  const span=Math.max(max-min,0.8),lower=Math.max(0,min-span*.28),upper=max+span*.28;
@@ -73,17 +73,17 @@ function settingsView(){
  return '<div class="m-group-head"><h2>Настройки</h2></div><div class="m-panel m-settings"><h3 style="margin:0">Google Sheets</h3><div class="m-dim">Все данные из твоей Google-таблицы. После подключения история обновляется автоматически.</div><div class="m-dim">'+(isConnected()?"● Google подключён":"● Google не подключён")+'</div><button class="m-add-sm" data-action="connect">Подключить Google</button><button class="m-muted-action" data-action="sync">↻ Синхронизировать</button><div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div><button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div><div class="m-panel m-settings"><h3 style="margin:0">Резервная копия</h3><div class="m-dim">Данные, созданные в приложении, можно сохранить в JSON.</div><button class="m-muted-action" data-action="export">Скачать копию JSON</button><button class="m-muted-action" data-action="import">Импортировать JSON</button></div>';
 }
 function overlayView(){
- if(!modal)return "";
+ if(!modal||settingsMode)return "";
  const body=modal.type==="body",options=active==="Другое"?"Грудь":active;
  const names=[...new Set(groupRecords(options).map(e=>e.exercise))].sort((a,b)=>a.localeCompare(b,"ru"));
  const initial=modal.exercise||names[0]||"";
  return '<div class="m-sheet-overlay" id="m-overlay"><div class="m-sheet" role="dialog" aria-modal="true"><div class="m-sheet-top"><h2>'+(body?"Новое взвешивание":"Записать максимум")+'</h2><button class="m-icon-btn" data-action="close">×</button></div><form id="m-add-form"><label class="m-form-label" for="m-date">Дата</label><input class="m-input" id="m-date" name="date" type="date" required value="'+today()+'">'+(body?'<label class="m-form-label" for="m-weight">Вес тела, кг</label><input class="m-input" id="m-weight" name="weight" type="number" min="20" max="350" step="0.1" inputmode="decimal" required placeholder="63,2"><label class="m-form-label" for="m-note">Заметка (необязательно)</label><input class="m-input" id="m-note" name="note" placeholder="Например, после завтрака">': '<label class="m-form-label" for="m-exercise">Упражнение</label><select class="m-input" id="m-exercise" name="exercise">'+names.map(n=>'<option value="'+esc(n)+'" '+(n===initial?"selected":"")+'>'+esc(n)+'</option>').join("")+'<option value="__new" '+(!names.length?"selected":"")+'>+ Новое упражнение</option></select><input class="m-input" id="m-newexercise" name="newexercise" style="margin-top:10px;'+(names.length?"display:none;":"")+'" placeholder="Название упражнения" maxlength="100"><div class="m-form-cols"><div><label class="m-form-label" for="m-weight">Макс. вес, кг</label><input class="m-input" id="m-weight" name="weight" type="number" min="0" max="2000" step="0.25" inputmode="decimal" required placeholder="70"></div><div><label class="m-form-label" for="m-reps">Повторения</label><input class="m-input" id="m-reps" name="reps" type="number" min="1" max="1000" step="1" inputmode="numeric" required placeholder="8"></div></div><p class="m-dim" style="margin-top:14px">Один лучший результат за тренировку. Подходы записывать не нужно.</p>')+'<button class="m-save" type="submit" '+(writing?"disabled":"")+'>Сохранить</button><div class="m-form-msg" id="m-form-msg"></div></form></div></div>';
 }
 function render(){
- root.innerHTML='<div class="m-wrap"><header class="m-header"><div class="m-brand"><span class="m-brand-icon">♢</span><div><h1>Gym Tracker</h1><p class="m-sub">Личный трекер тренировок</p></div></div><div class="m-top-actions"><button class="m-icon-btn" data-action="settings" aria-label="Настройки">⚙</button></div></header><div class="m-sync '+(isConnected()?"":"off")+'"><span class="m-dot"></span>'+(isConnected()?"Синхронизировано с Google Sheets":"Локальные данные · Google при подключении")+'</div><nav class="m-filters" aria-label="Разделы">'+TABS.map(t=>'<button class="m-chip '+(t===active?"active":"")+'" data-tab="'+esc(t)+'">'+esc(t)+'</button>').join("")+'</nav>'+(modal?.page==="settings"?settingsView():active==="Общий вес"?weightView():active==="Другое"?otherView():detail?detailView():exerciseView(active))+'</div>'+overlayView();
+ root.innerHTML='<div class="m-wrap"><header class="m-header"><div class="m-brand"><span class="m-brand-icon">♢</span><div><h1>Gym Tracker</h1><p class="m-sub">Личный трекер тренировок</p></div></div><div class="m-top-actions"><button class="m-icon-btn" data-action="settings" aria-label="Настройки">⚙</button></div></header><div class="m-sync '+(isConnected()?"":"off")+'"><span class="m-dot"></span>'+(isConnected()?"Синхронизировано с Google Sheets":"Локальные данные · Google при подключении")+'</div><nav class="m-filters" aria-label="Разделы">'+TABS.map(t=>'<button class="m-chip '+(t===active?"active":"")+'" data-tab="'+esc(t)+'">'+esc(t)+'</button>').join("")+'</nav>'+(settingsMode?settingsView():active==="Общий вес"?weightView():active==="Другое"?otherView():detail?detailView():exerciseView(active))+'</div>'+overlayView();
  const sel=root.querySelector(".m-chip.active");if(sel&&root.dataset.lastTab!==active){root.dataset.lastTab=active;sel.scrollIntoView({block:"nearest",inline:"center"});}
 }
-function selectTab(t){if(!TABS.includes(t))return;active=t;detail=null;showAll=false;modal=null;localStorage.setItem(CACHE,t);render();scrollTo({top:0,behavior:"instant"})}
+function selectTab(t){if(!TABS.includes(t))return;active=t;detail=null;showAll=false;modal=null;settingsMode=false;localStorage.setItem(CACHE,t);render();scrollTo({top:0,behavior:"instant"})}
 function showModal(exercise=null){modal={type:active==="Общий вес"?"body":"workout",exercise};render();setTimeout(()=>{const input=$("m-exercise")||$("m-weight");input?.focus()},40)}
 function store(e){return new Promise((resolve,reject)=>{const req=indexedDB.open("gym-tracker-v1");req.onsuccess=()=>{const db=req.result;try{const t=db.transaction("entries","readwrite");t.objectStore("entries").put(e);t.oncomplete=()=>{db.close();resolve()};t.onerror=()=>{db.close();reject(t.error)}}catch(err){db.close();reject(err)}};req.onerror=()=>reject(req.error)})}
 async function save(event){
@@ -121,7 +121,7 @@ root.addEventListener("click",e=>{
  if(action==="add")showModal(detail);
  if(action==="back"){detail=null;render();}
  if(action==="toggle-history"){showAll=!showAll;render();}
- if(action==="settings"){modal={page:"settings"};render();}
+ if(action==="settings"){settingsMode=!settingsMode;modal=null;render();}
  if(action==="connect")$("connectSheets").click();
  if(action==="sync")$("syncSheets").click();
  if(action==="export")$("export").click();
@@ -131,9 +131,9 @@ root.addEventListener("click",e=>{
 root.addEventListener("change",e=>{if(e.target.id==="m-exercise"){$("m-newexercise").style.display=e.target.value==="__new"?"":"none";}});
 root.addEventListener("submit",e=>{if(e.target.id==="m-add-form")void save(e)});
 root.addEventListener("click",e=>{if(e.target.id==="m-overlay"){modal=null;render()}});
-window.addEventListener("gym-history-updated",()=>{if(!modal||modal.page==="settings")render()});
+window.addEventListener("gym-history-updated",()=>{if(!modal)render()});
 window.addEventListener("gym-data-changed",()=>{if(!modal)render()});
 window.addEventListener("gym-google-connected",render);
-const statusNode=$("sheetsStatus");if(statusNode){new MutationObserver(()=>{lastStatus=statusNode.textContent||"";if(modal?.page==="settings"){$("modernStatus").textContent=lastStatus;}else{const dot=root.querySelector(".m-sync");if(dot){dot.classList.toggle("off",!isConnected());dot.innerHTML='<span class="m-dot"></span>'+(isConnected()?"Синхронизировано с Google Sheets":"Локальные данные · Google при подключении");}}}).observe(statusNode,{childList:true,characterData:true,subtree:true})}
+const statusNode=$("sheetsStatus");if(statusNode){new MutationObserver(()=>{lastStatus=statusNode.textContent||"";if(settingsMode){const el=$("modernStatus");if(el)el.textContent=lastStatus;}else{const dot=root.querySelector(".m-sync");if(dot){dot.classList.toggle("off",!isConnected());dot.innerHTML='<span class="m-dot"></span>'+(isConnected()?"Синхронизировано с Google Sheets":"Локальные данные · Google при подключении");}}}).observe(statusNode,{childList:true,characterData:true,subtree:true})}
 render();
 })();
