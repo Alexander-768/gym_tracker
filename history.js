@@ -85,7 +85,7 @@ function renderBody(){
  $("bodyChart").innerHTML=chart(a);
  $("bodyRows").innerHTML=a.length?[...a].reverse().map(e=>'<div class="history-record"><div class="row"><span>'+prettyDate(e.date)+'</span><strong style="margin-left:auto">'+fmt(e.weight)+' кг</strong></div>'+(e.note?'<small>'+escapeHtml(e.note)+'</small>':"")+'</div>').join(""):'<div class="empty">История веса тела появится после подключения Google Sheets</div>';
 }
-function render(){renderGroups();renderBody()}
+function render(){renderGroups();renderBody();window.dispatchEvent(new Event("gym-history-updated"))}
 function setSummary(text){const el=$("legacyCount");if(el)el.title=text}
 async function fetchLive(){
  if(!window.gymLegacyApi?.ready?.())return;
@@ -116,6 +116,7 @@ $("categoryChips").addEventListener("click",e=>{const b=e.target.closest("[data-
 $("libraryExercise").addEventListener("change",renderGroups);
 $("bodyForm").addEventListener("submit",onBodySave);
 const dt=new Date();$("bodyDate").value=[dt.getFullYear(),String(dt.getMonth()+1).padStart(2,"0"),String(dt.getDate()).padStart(2,"0")].join("-");
+window.gymHistoryData=()=>({workouts:workouts(),body:parseTab("Мои данные",legacy["Мои данные"]||[]),notes:parseTab("Другое",legacy["Другое"]||[])});
 loadCache();render();
 window.addEventListener("gym-data-changed",render);
 window.addEventListener("gym-google-connected",fetchLive);
