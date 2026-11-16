@@ -21,6 +21,7 @@ function dateISO(v){
 }
 function prettyDate(d){if(!d)return "Без даты";const p=d.split("-");return p[2]+"."+p[1]+"."+p[0]}
 function parseTab(name,values){
+ if(name==="Другое")return (values||[]).slice(1).map((r,i)=>({id:"misc:"+(i+2),category:"Другое",row:i+2,date:dateISO(r[0]),exercise:"Калории и заметки",weight:null,reps:null,note:[r[1],r[2]].filter(x=>x!==null&&x!==undefined&&String(x).trim()).join(" · "),source:"sheets"})).filter(x=>x.note);
  if(name==="Мои данные")return (values||[]).slice(1).map((r,i)=>({
   id:"body:"+name+":"+(i+2),row:i+2,date:dateISO(r[0]),weight:parseNum(r[1]),note:String(r[2]??"")
  })).filter(x=>x.weight!==null&&x.weight>=20&&x.weight<=350);
@@ -34,7 +35,7 @@ function localWorkouts(){
  const raw=window.gymEntries?.()||[];
  return raw.filter(e=>e&&e.exercise).map(e=>({...e,category:e.category||"Без группы",weight:parseNum(e.weight),reps:parseNum(e.reps),source:"app"}));
 }
-function workouts(){return [...GROUPS.flatMap(g=>parseTab(g,legacy[g]||[])),...localWorkouts()]}
+function workouts(){return [...[...GROUPS,"Другое"].flatMap(g=>parseTab(g,legacy[g]||[])),...localWorkouts()]}
 function loadCache(){try{const d=JSON.parse(localStorage.getItem(cacheKey)||"{}");if(d?.tabs&&typeof d.tabs==="object")legacy=d.tabs;}catch{}}
 function saveCache(){try{localStorage.setItem(cacheKey,JSON.stringify({savedAt:Date.now(),tabs:legacy}))}catch{}}
 function chart(points,unit="кг"){
@@ -53,16 +54,16 @@ function chart(points,unit="кг"){
 }
 function groupedList(items){
  return items.map(e=>{
-  const weight=e.weight!==null&&e.weight!==undefined?fmt(e.weight)+" кг":"вес не указан";
+  const weight=e.category==="Другое"?"":(e.weight!==null&&e.weight!==undefined?fmt(e.weight)+" кг":"вес не указан");
   const reps=e.reps!==null&&e.reps!==undefined?fmt(e.reps)+" повт.":"повт. не указаны";
   const text=(e.note?" · "+escapeHtml(e.note):"");
-  return '<div class="history-record"><div class="row"><b>'+escapeHtml(e.exercise)+'</b><strong style="margin-left:auto;white-space:nowrap">'+weight+'</strong></div><small>'+prettyDate(e.date)+' · '+reps+(e.sets?" · "+fmt(e.sets)+" подх.":"")+text+'</small>'+(e.source==="app"?'<small>Запись приложения</small>':'')+'</div>';
+  return '<div class="history-record"><div class="row"><b>'+escapeHtml(e.exercise)+'</b><strong style="margin-left:auto;white-space:nowrap">'+weight+'</strong></div><small>'+prettyDate(e.date)+(e.category==="Другое"?"":' · '+reps+(e.sets?" · "+fmt(e.sets)+" подх.":""))+text+'</small>'+(e.source==="app"?'<small>Запись приложения</small>':'')+'</div>';
  }).join("")||'<div class="empty">Нет записей в этой группе</div>';
 }
 function renderGroups(){
  const all=workouts();
  $("legacyCount").textContent=all.length+" записей";
- const categories=[ALL,...GROUPS,"Без группы"];
+ const categories=[ALL,...GROUPS,"Другое","Без группы"];
  $("categoryChips").innerHTML=categories.map(g=>'<button data-group="'+escapeHtml(g)+'" class="'+(g===activeGroup?"active":"")+'">'+escapeHtml(g)+(g===ALL?" · "+all.length:"")+'</button>').join("");
  const subset=activeGroup===ALL?all:all.filter(x=>x.category===activeGroup);
  const names=[...new Set(subset.map(x=>x.exercise))].sort((a,b)=>a.localeCompare(b,"ru"));
@@ -114,7 +115,7 @@ async function onBodySave(event){
 $("categoryChips").addEventListener("click",e=>{const b=e.target.closest("[data-group]");if(!b)return;activeGroup=b.dataset.group;$("libraryExercise").value="";renderGroups()});
 $("libraryExercise").addEventListener("change",renderGroups);
 $("bodyForm").addEventListener("submit",onBodySave);
-$("bodyDate").value=new Date().toLocaleDateString("en-CA");
+const dt=new Date();$("bodyDate").value=[dt.getFullYear(),String(dt.getMonth()+1).padStart(2,"0"),String(dt.getDate()).padStart(2,"0")].join("-");
 loadCache();render();
 window.addEventListener("gym-data-changed",render);
 window.addEventListener("gym-google-connected",fetchLive);
