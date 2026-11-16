@@ -51,38 +51,59 @@ const MIRROR_TABS=["Мои данные","Руки","Спина и плечи","
 // A protected record ID in D for body weight or F for workout sheets
 // allows retries and repairs without blindly appending duplicates.
 async function mirrorRecords(records){
- // Append-only mirror. Never overwrite existing user's training values.
+ // Only rows previously marked with our record ID are eligible for update.
  const names=MIRROR_TABS;
  const ranges=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:F")).join("&");
  const payload=await api("/values:batchGet?"+ranges+"&valueRenderOption=UNFORMATTED_VALUE");
  const tabs={};
  for(let i=0;i<names.length;i++)tabs[names[i]]=payload.valueRanges?.[i]?.values||[];
- const headerUpdates=[];
+ const headerUpdates=[], rowUpdates=[], additions={};
  for(const name of names){
-  const col=name==="Мои данные"?3:5;
-  const header=String(tabs[name]?.[0]?.[col]||"").trim();
-  if(header && header!=="gym_tracker_id")throw Error("Столбец идентификатора на листе «"+name+"» занят. Синхронизация зеркала остановлена.");
-  // Guard the full marker column (not just header) against overwriting existing content.
-  if(!header&&tabs[name].slice(1).some(r=>String(r[col]??"").trim()))
-    throw Error("Служебный столбец в «"+name+"» уже содержит значения.");
+  const col=name==="Мои данные"?3:5,all=tabs[name]||[];
+  const header=String(all[0]?.[col]||"").trim();
+  if(header && header!=="gym_tracker_id")throw Error("В «"+name+"» служебный столбец уже занят; зеркало остановлено.");
+  if(!header&&all.slice(1).some(r=>String(r[col]??"").trim()))
+    throw Error("Служебный столбец «"+name+"» уже содержит данные.");
   if(!header)headerUpdates.push({range:quote(name)+"!"+(col===3?"D1":"F1"),values:[["gym_tracker_id"]]});
- }
- if(headerUpdates.length)await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"RAW",data:headerUpdates})});
- for(const name of names){
-  const col=name==="Мои данные"?3:5;
-  const existing=new Set((tabs[name]||[]).slice(1).map(r=>String(r[col]||"").trim()).filter(Boolean));
-  const batch=[];
+  const existing=new Map();
+  all.slice(1).forEach((r,i)=>{const id=String(r[col]||"").trim();if(id)existing.set(id,{row:i+2,cells:r});});
+  additions[name]=[];
   for(const e of records){
-   if(Number(e.deletedAt||0)>0 || !e.id || e.category!==(name==="Мои данные"?"Общий вес":name)||existing.has(e.id))continue;
+   if(!e?.id)continue;
+   const target=e.category==="Общий вес"?"Мои данные":MIRROR_TABS.includes(e.category)?e.category:null;
+   const isTarget=target===name,dead=Number(e.deletedAt||0)>0;
    const iso=String(e.date||"");
-   const formatted=/^\d{4}-\d{2}-\d{2}$/.test(iso)?iso.slice(8,10)+"."+iso.slice(5,7)+"."+iso.slice(0,4):iso;
-   const values=name==="Мои данные"?
-      [formatted,Number(e.weight),e.note||"",e.id]:
-      [formatted,e.exercise||"",Number(e.weight),e.reps==null?"":Number(e.reps),e.note||"",e.id];
-   batch.push(values);existing.add(e.id);
+   const date=/^\d{4}-\d{2}-\d{2}$/.test(iso)?iso.slice(8,10)+"."+iso.slice(5,7)+"."+iso.slice(0,4):iso;
+   const fields=isTarget&&!dead
+    ? name==="Мои данные"?[date,Number(e.weight),e.note||"",e.id]:[date,e.exercise||"",Number(e.weight),e.reps==null?"":Number(e.reps),e.note||"",e.id]
+    : name==="Мои данные"?["","","",e.id]:["","","","","",e.id];
+   const match=existing.get(e.id);
+   if(match){
+    // Rows without our ID are never overwritten.
+    const old=match.cells.slice(0,fields.length);
+    const equal=fields.every((v,i)=>{
+      const oldval=old[i];
+      if(v===""&&(oldval===undefined||oldval===null||oldval===""))return true;
+      // Sheets converts DD.MM.YYYY input into a date serial or formatted value;
+      // don't rewrite unchanged dates on every sync.
+      if(i===0&&oldval!==undefined&&String(oldval)!==String(v)){
+        if(typeof oldval==="number"&&oldval>30000&&oldval<90000){
+          const asDate=new Date(Date.UTC(1899,11,30)+Math.floor(oldval)*86400000).toISOString().slice(0,10);
+          if(asDate===iso)return true;
+        }
+      }
+      return String(oldval??"")===String(v);
+    });
+    if(!equal)rowUpdates.push({range:quote(name)+"!A"+match.row+":"+(name==="Мои данные"?"D":"F")+match.row,values:[fields]});
+   }else if(isTarget&&!dead){additions[name].push(fields);existing.set(e.id,{row:-1,cells:fields});}
   }
-  if(batch.length)await api("/values/"+encodeURIComponent(quote(name)+(name==="Мои данные"?"!A:D":"!A:F"))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-   {method:"POST",body:JSON.stringify({values:batch})});
+ }
+ if(headerUpdates.length||rowUpdates.length)
+  await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:[...headerUpdates,...rowUpdates]})});
+ for(const name of names){
+  if(!additions[name].length)continue;
+  await api("/values/"+encodeURIComponent(quote(name)+(name==="Мои данные"?"!A:D":"!A:F"))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+   {method:"POST",body:JSON.stringify({values:additions[name]})});
  }
 }
 async function syncNow(){
