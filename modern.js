@@ -89,19 +89,19 @@ function store(e){return new Promise((resolve,reject)=>{const req=indexedDB.open
 async function save(event){
  event.preventDefault();if(writing)return;const form=event.target;if(!(form instanceof HTMLFormElement))return;const fd=new FormData(form),date=String(fd.get("date")||""),weight=Number(fd.get("weight"));const msg=$("m-form-msg");
  if(!date||!Number.isFinite(weight)||weight<0){msg.textContent="Проверь дату и вес";return;}
- if(active==="Общий вес"&&!isConnected()){
-  msg.textContent="Восстанавливаю подключение к Google… После входа нажми «Сохранить» ещё раз. Введённые значения останутся в форме.";
-  $("connectSheets").click();
-  return;
- }
+
  writing=true;form.querySelector(".m-save").disabled=true;
  try{
  if(active==="Общий вес"){
-  if(!isConnected())throw Error("Для записи веса тела нужно подключить Google в настройках.");
-  const old=data().body.find(x=>x.date===date);if(old && !confirm("За этот день уже есть взвешивание. Добавить ещё одно?")){writing=false;form.querySelector(".m-save").disabled=false;return;}
-  const [y,m,d]=date.split("-");
-  await window.gymLegacyApi.appendBody(d+"."+m+"."+y,weight,String(fd.get("note")||"").trim());
-  window.dispatchEvent(new Event("gym-google-sync"));
+  const records=data().body.filter(x=>x.date===date);
+  const existingLocal=records.find(x=>x.source==="app");
+  if(records.length && !confirm("За эту дату уже есть взвешивание. "+(existingLocal?"Обновить его?":"Добавить ещё одно?"))){
+   writing=false;form.querySelector(".m-save").disabled=false;return;
+  }
+  const now=Date.now();
+  await store({id:existingLocal?.id||crypto.randomUUID(),date,exercise:"Вес тела",weight,reps:null,sets:1,note:String(fd.get("note")||"").trim(),category:"Общий вес",createdAt:existingLocal?.createdAt||now,updatedAt:now});
+  await window.gymRefresh?.();window.gymSheetChanged?.();
+  window.dispatchEvent(new Event("gym-data-changed"));
  }else{
   const selected=String(fd.get("exercise")||""),exercise=(selected==="__new"?String(fd.get("newexercise")||"").trim():selected).trim(),reps=Number(fd.get("reps"));
   if(!exercise||!Number.isInteger(reps)||reps<1)throw Error("Выбери упражнение и укажи повторения.");
@@ -113,7 +113,7 @@ async function save(event){
   await store({id:existingLocal?.id||crypto.randomUUID(),date,exercise,weight,reps,sets:1,note:"",category:active,createdAt:existingLocal?.createdAt||now,updatedAt:now});
   await window.gymRefresh?.();window.gymSheetChanged?.();window.dispatchEvent(new Event("gym-data-changed"));
  }
- modal=null;render();lastStatus="✓ Результат сохранён";
+ modal=null;render();lastStatus=isConnected()?"✓ Запись сохранена локально; отправка в Google запущена":"✓ Запись сохранена локально. Google синхронизируется после подключения.";
  }catch(err){const current=$("m-form-msg");if(current)current.textContent=err.message||"Ошибка сохранения";}
  finally{writing=false;const btn=$("m-add-form")?.querySelector(".m-save");if(btn)btn.disabled=false;}
 }
