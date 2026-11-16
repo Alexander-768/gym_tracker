@@ -89,6 +89,11 @@ function store(e){return new Promise((resolve,reject)=>{const req=indexedDB.open
 async function save(event){
  event.preventDefault();if(writing)return;const form=event.target;if(!(form instanceof HTMLFormElement))return;const fd=new FormData(form),date=String(fd.get("date")||""),weight=Number(fd.get("weight"));const msg=$("m-form-msg");
  if(!date||!Number.isFinite(weight)||weight<0){msg.textContent="Проверь дату и вес";return;}
+ if(active==="Общий вес"&&!isConnected()){
+  msg.textContent="Восстанавливаю подключение к Google… После входа нажми «Сохранить» ещё раз. Введённые значения останутся в форме.";
+  $("connectSheets").click();
+  return;
+ }
  writing=true;form.querySelector(".m-save").disabled=true;
  try{
  if(active==="Общий вес"){
@@ -133,7 +138,7 @@ root.addEventListener("submit",e=>{if(e.target.id==="m-add-form")void save(e).ca
 root.addEventListener("click",e=>{if(e.target.id==="m-overlay"){modal=null;render()}});
 window.addEventListener("gym-history-updated",()=>{if(!modal)render()});
 window.addEventListener("gym-data-changed",()=>{if(!modal)render()});
-window.addEventListener("gym-google-connected",render);
+window.addEventListener("gym-google-connected",()=>{if(modal){const msg=$("m-form-msg");if(msg)msg.textContent="✓ Google подключён. Нажми «Сохранить» ещё раз.";return;}render()});
 const statusNode=$("sheetsStatus");if(statusNode){new MutationObserver(()=>{lastStatus=statusNode.textContent||"";if(settingsMode){const el=$("modernStatus");if(el)el.textContent=lastStatus;}else{const dot=root.querySelector(".m-sync");if(dot){dot.classList.toggle("off",!isConnected());dot.innerHTML='<span class="m-dot"></span>'+(isConnected()?"Синхронизировано с Google Sheets":"Локальные данные · Google при подключении");}}}).observe(statusNode,{childList:true,characterData:true,subtree:true})}
 render();
 })();
