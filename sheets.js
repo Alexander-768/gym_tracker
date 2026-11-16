@@ -9,6 +9,11 @@ const SCOPE="https://www.googleapis.com/auth/spreadsheets";
 const $=id=>document.getElementById(id);
 let accessToken=null,expiresAt=0,client=null,busy=false,needsResync=false,writeQueue=Promise.resolve();
 const status=msg=>{if($("sheetsStatus"))$("sheetsStatus").textContent=msg;};
+function publishSync(state,message){
+ window.gymSyncState={state,message,at:Date.now()};
+ window.dispatchEvent(new CustomEvent("gym-sync-status",{detail:window.gymSyncState}));
+ status(message);
+}
 const quote=tab=>"'"+tab.replace(/'/g,"''")+"'";
 async function api(path,options={}) {
  if(!accessToken || Date.now()>expiresAt)throw Error("Время доступа Google истекло. Нажми «Подключить Google» ещё раз.");
@@ -107,8 +112,8 @@ async function mirrorRecords(records){
  }
 }
 async function syncNow(){
- if(!accessToken)return; if(busy){needsResync=true;return;}
- busy=true;$("syncSheets").disabled=true;status("Синхронизация...");
+ if(!accessToken||Date.now()>expiresAt){publishSync("auth","Google не подключён. Записи сохранены локально и ждут синхронизации.");return false;} if(busy){needsResync=true;return false;}
+ busy=true;$("syncSheets").disabled=true;publishSync("syncing","Отправляю записи в Google Sheets...");
  try{
   await ensureTab();
   const rr=(await rows()).map(remoteRecord),rmap=new Map(rr.map(x=>[x.id,x]));
@@ -130,12 +135,21 @@ async function syncNow(){
   if(updates.length)await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"RAW",data:updates})});
   if(appends.length)await api("/values/"+encodeURIComponent(quote(TAB)+"!A:K")+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:appends})});
   if(toSave.length||toDelete.length)await saveLocal(toSave,toDelete);
-  // After the canonical app tab is written, mirror the same records to familiar sheets.
-  await mirrorRecords([...merged.values()]);
+  // Canonical writes must succeed independently of legacy mirroring.
+  publishSync("main-ok","Главный журнал Google Sheets обновлён. Проверяю привычные листы...");
+  let mirrorError=null;
+  try{await mirrorRecords([...merged.values()]);}
+  catch(e){mirrorError=e;}
   localStorage.setItem(tombstoneKey,JSON.stringify(del));
   if(typeof window.gymRefresh==="function")await window.gymRefresh();
-  status("✓ Автоматически синхронизировано: "+new Date().toLocaleTimeString("ru-RU")+". Записей в облаке: "+merged.size);window.dispatchEvent(new Event("gym-google-sync"));
- }catch(e){status("Ошибка: "+e.message)}finally{busy=false;$("syncSheets").disabled=false;if(needsResync){needsResync=false;void syncNow();}}
+  if(mirrorError){
+   publishSync("partial","✓ gym_tracker_app обновлён, но ошибка в привычных листах: "+mirrorError.message);
+  }else{
+   publishSync("success","✓ Google Sheets синхронизирован: "+new Date().toLocaleTimeString("ru-RU"));
+  }
+  window.dispatchEvent(new Event("gym-google-sync"));
+  return !mirrorError;
+ }catch(e){publishSync("error","Ошибка Google Sheets: "+e.message);return false}finally{busy=false;$("syncSheets").disabled=false;if(needsResync){needsResync=false;void syncNow();}}
 }
 
 let legacyCopy="";
@@ -176,6 +190,7 @@ function setupClient(){
     return;
    }
    accessToken=response.access_token;
+   publishSync("syncing","Доступ к Google получен. Синхронизирую...");
    expiresAt=Date.now()+(Number(response.expires_in)||3500)*1000-60000;
    localStorage.setItem(connectedBeforeKey,"yes");
    $("connectSheets").textContent="↻ Обновить доступ Google";
@@ -200,6 +215,8 @@ function requestToken(automatic=false){
  catch(err){authRequestInFlight=false;status("Для подключения Google нажми кнопку: "+err.message);}
 }
 function connect(){requestToken(false);}
+window.gymSheetConnect=connect;
+window.gymSheetReady=()=>Boolean(accessToken&&Date.now()<expiresAt);
 function autoConnect(){
  if(autoAuthAttempted||!navigator.onLine||localStorage.getItem(connectedBeforeKey)!=="yes")return;
  if(!window.google?.accounts?.oauth2)return;
@@ -238,7 +255,10 @@ window.addEventListener("online",()=>{void autoRefresh()});
 setInterval(()=>{void autoRefresh()},90000);
 
 window.gymSheetDeleted=markDelete;
-window.gymSheetChanged=()=>{if(accessToken)writeQueue=writeQueue.then(()=>syncNow()).catch(()=>{});};
+window.gymSheetChanged=()=>{
+ if(!accessToken||Date.now()>expiresAt){publishSync("auth","Запись сохранена локально — подключи Google для отправки.");return;}
+ writeQueue=writeQueue.then(()=>syncNow()).catch(e=>publishSync("error","Ошибка синхронизации: "+e.message));
+};
 window.gymSheetSync=syncNow;
 $("connectSheets").addEventListener("click",connect);
 $("syncSheets").addEventListener("click",syncNow);
