@@ -87,7 +87,7 @@ function selectTab(t){if(!TABS.includes(t))return;active=t;detail=null;showAll=f
 function showModal(exercise=null){modal={type:active==="Общий вес"?"body":"workout",exercise};render();setTimeout(()=>{const input=$("m-exercise")||$("m-weight");input?.focus()},40)}
 function store(e){return new Promise((resolve,reject)=>{const req=indexedDB.open("gym-tracker-v1");req.onsuccess=()=>{const db=req.result;try{const t=db.transaction("entries","readwrite");t.objectStore("entries").put(e);t.oncomplete=()=>{db.close();resolve()};t.onerror=()=>{db.close();reject(t.error)}}catch(err){db.close();reject(err)}};req.onerror=()=>reject(req.error)})}
 async function save(event){
- event.preventDefault();if(writing)return;const form=event.currentTarget,fd=new FormData(form),date=String(fd.get("date")||""),weight=Number(fd.get("weight"));const msg=$("m-form-msg");
+ event.preventDefault();if(writing)return;const form=event.target;if(!(form instanceof HTMLFormElement))return;const fd=new FormData(form),date=String(fd.get("date")||""),weight=Number(fd.get("weight"));const msg=$("m-form-msg");
  if(!date||!Number.isFinite(weight)||weight<0){msg.textContent="Проверь дату и вес";return;}
  writing=true;form.querySelector(".m-save").disabled=true;
  try{
@@ -129,7 +129,7 @@ root.addEventListener("click",e=>{
  if(action==="open-sheet")window.open("https://docs.google.com/spreadsheets/d/1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs/edit","_blank","noopener");
 });
 root.addEventListener("change",e=>{if(e.target.id==="m-exercise"){$("m-newexercise").style.display=e.target.value==="__new"?"":"none";}});
-root.addEventListener("submit",e=>{if(e.target.id==="m-add-form")void save(e)});
+root.addEventListener("submit",e=>{if(e.target.id==="m-add-form")void save(e).catch(err=>{const el=$("m-form-msg");if(el)el.textContent="Ошибка: "+(err?.message||"не удалось сохранить");console.error("Save failed",err)})});
 root.addEventListener("click",e=>{if(e.target.id==="m-overlay"){modal=null;render()}});
 window.addEventListener("gym-history-updated",()=>{if(!modal)render()});
 window.addEventListener("gym-data-changed",()=>{if(!modal)render()});
