@@ -4,15 +4,17 @@
 const CLIENT_ID="255537560032-4a6lqi2quocorn0jn0sl5tqlerjfl4br.apps.googleusercontent.com";
 const SPREADSHEET_ID="1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs";
 const TAB="gym_tracker_app";
+const SYNC_VERSION="2026-11-16.11";
+window.gymSyncVersion=SYNC_VERSION;
 const HEADERS=["id","date","exercise","weight_kg","reps","sets","note","created_at","updated_at","deleted_at","category"];
 const SCOPE="https://www.googleapis.com/auth/spreadsheets";
 const $=id=>document.getElementById(id);
 let accessToken=null,expiresAt=0,client=null,busy=false,needsResync=false,writeQueue=Promise.resolve();
 const status=msg=>{if($("sheetsStatus"))$("sheetsStatus").textContent=msg;};
 function publishSync(state,message){
- window.gymSyncState={state,message,at:Date.now()};
+ window.gymSyncState={state,message:message+" · синхр. v11",at:Date.now()};
  window.dispatchEvent(new CustomEvent("gym-sync-status",{detail:window.gymSyncState}));
- status(message);
+ status(window.gymSyncState.message);
 }
 const quote=tab=>"'"+tab.replace(/'/g,"''")+"'";
 async function api(path,options={}) {
@@ -63,7 +65,7 @@ async function mirrorRecords(records){
  const response=await api("/values:batchGet?"+ranges+"&valueRenderOption=UNFORMATTED_VALUE");
  const tabs={};
  names.forEach((name,i)=>tabs[name]=response.valueRanges?.[i]?.values||[]);
- const writes=[],warnings=[];
+ const writes=[],warnings=[],verifiedWrites=[];
  for(const name of names){
   const grid=tabs[name],markerCol=name==="Мои данные"?3:5;
   const endCol=name==="Мои данные"?"D":"F";
@@ -118,6 +120,7 @@ async function mirrorRecords(records){
     if(target===name)warnings.push(name+": обнаружены ранее сдвинутые строки ("+e.id+"). Автоматически не исправлены.");
    }else if(active){
     writes.push({range:quote(name)+"!A"+nextRow+":"+endCol+nextRow,values:[newValues]});
+    verifiedWrites.push({name,row:nextRow,id:e.id,markerCol});
     existing.set(e.id,[{row:nextRow,col:markerCol,cells:newValues}]);
     nextRow++;
    }
@@ -135,6 +138,16 @@ async function mirrorRecords(records){
   }
   if(resize.length)await api(":batchUpdate",{method:"POST",body:JSON.stringify({requests:resize})});
   await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:writes})});
+  // Confirm new records landed in A:F (or A:D for body).
+  if(verifiedWrites.length){
+   const request=verifiedWrites.map(w=>"ranges="+encodeURIComponent(quote(w.name)+"!A"+w.row+":"+(w.markerCol===3?"D":"F")+w.row)).join("&");
+   const check=await api("/values:batchGet?"+request+"&valueRenderOption=UNFORMATTED_VALUE");
+   verifiedWrites.forEach((w,i)=>{
+    const cells=check.valueRanges?.[i]?.values?.[0]||[];
+    if(String(cells[w.markerCol]||"")!==String(w.id))
+     throw Error("Контроль записи не пройден: "+w.name+", строка "+w.row+". Вкладка не подтверждена.");
+   });
+  }
  }
  return warnings;
 }
