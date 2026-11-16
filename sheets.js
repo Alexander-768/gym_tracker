@@ -4,7 +4,7 @@
 const CLIENT_ID="255537560032-4a6lqi2quocorn0jn0sl5tqlerjfl4br.apps.googleusercontent.com";
 const SPREADSHEET_ID="1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs";
 const TAB="gym_tracker_app";
-const HEADERS=["id","date","exercise","weight_kg","reps","sets","note","created_at","updated_at","deleted_at"];
+const HEADERS=["id","date","exercise","weight_kg","reps","sets","note","created_at","updated_at","deleted_at","category"];
 const SCOPE="https://www.googleapis.com/auth/spreadsheets";
 const $=id=>document.getElementById(id);
 let accessToken=null,expiresAt=0,client=null,busy=false,needsResync=false,writeQueue=Promise.resolve();
@@ -20,20 +20,20 @@ async function api(path,options={}) {
 const meta=()=>api("?fields=sheets(properties(sheetId,title,gridProperties))");
 async function sheets(){const m=await meta();return m.sheets?.map(x=>x.properties)||[];}
 async function ensureTab(){
- const all=await sheets();if(all.some(x=>x.title===TAB))return;
+ const all=await sheets();if(all.some(x=>x.title===TAB)){const h=await api("/values/"+encodeURIComponent(quote(TAB)+"!A1:K1"));const header=h.values?.[0]||[];if(header.length>=10&&HEADERS.slice(0,10).every((v,i)=>header[i]===v)&&!header[10])await api("/values/"+encodeURIComponent(quote(TAB)+"!K1")+"?valueInputOption=RAW",{method:"PUT",body:JSON.stringify({values:[["category"]]})});return;}
  try{await api(":batchUpdate",{method:"POST",body:JSON.stringify({requests:[{addSheet:{properties:{title:TAB}}}]})});}catch(e){if(!(await sheets()).some(x=>x.title===TAB))throw e;}
- await api("/values/"+encodeURIComponent(quote(TAB)+"!A1:J1")+"?valueInputOption=RAW",{method:"PUT",body:JSON.stringify({values:[HEADERS]})});
+ await api("/values/"+encodeURIComponent(quote(TAB)+"!A1:K1")+"?valueInputOption=RAW",{method:"PUT",body:JSON.stringify({values:[HEADERS]})});
 }
 async function rows(){
- const d=await api("/values/"+encodeURIComponent(quote(TAB)+"!A1:J")+"?valueRenderOption=UNFORMATTED_VALUE");
+ const d=await api("/values/"+encodeURIComponent(quote(TAB)+"!A1:K")+"?valueRenderOption=UNFORMATTED_VALUE");
  const values=d.values||[];if(values.length && HEADERS.some((v,i)=>String(values[0]?.[i]||"")!==v))throw Error("Заголовки вкладки gym_tracker_app отличаются. Синхронизация остановлена, чтобы не перезаписать данные.");
  return values.slice(1).map((r,i)=>({r:r,index:i+2})).filter(x=>x.r[0]);
 }
 function remoteRecord({r,index}){
- const [id,date,exercise,weight,reps,sets,note,created,updated,deleted]=r;
- return {id:String(id),date:String(date||""),exercise:String(exercise||""),weight:Number(weight),reps:Number(reps),sets:Number(sets),note:String(note||""),createdAt:Number(created)||0,updatedAt:Number(updated)||0,deletedAt:Number(deleted)||0,row:index};
+ const [id,date,exercise,weight,reps,sets,note,created,updated,deleted,category]=r;
+ return {id:String(id),date:String(date||""),exercise:String(exercise||""),weight:Number(weight),reps:Number(reps),sets:Number(sets),note:String(note||""),createdAt:Number(created)||0,updatedAt:Number(updated)||0,deletedAt:Number(deleted)||0,category:String(category||"Без группы"),row:index};
 }
-const serialize=e=>[e.id,e.date,e.exercise,e.weight,e.reps,e.sets,e.note||"",e.createdAt||Date.now(),e.updatedAt||Date.now(),e.deletedAt||""];
+const serialize=e=>[e.id,e.date,e.exercise,e.weight,e.reps,e.sets,e.note||"",e.createdAt||Date.now(),e.updatedAt||Date.now(),e.deletedAt||"",e.category||"Без группы"];
 async function getLocal(){
  // Existing app has private IndexedDB module variables. Read same store independently.
  const d=await new Promise((resolve,reject)=>{const q=indexedDB.open("gym-tracker-v1");q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});
@@ -65,14 +65,14 @@ async function syncNow(){
    else if(!localOld || Number(localOld.updatedAt)<Number(e.updatedAt))toSave.push({...e,deletedAt:undefined,row:undefined});
    const remoteOld=rmap.get(e.id);
    if(!remoteOld)appends.push(serialize(e));
-   else if(Number(remoteOld.updatedAt)<Number(e.updatedAt)||Number(remoteOld.deletedAt||0)!==Number(e.deletedAt||0))updates.push({range:quote(TAB)+"!A"+remoteOld.row+":J"+remoteOld.row,values:[serialize(e)]});
+   else if(Number(remoteOld.updatedAt)<Number(e.updatedAt)||Number(remoteOld.deletedAt||0)!==Number(e.deletedAt||0))updates.push({range:quote(TAB)+"!A"+remoteOld.row+":K"+remoteOld.row,values:[serialize(e)]});
   }
   if(updates.length)await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"RAW",data:updates})});
-  if(appends.length)await api("/values/"+encodeURIComponent(quote(TAB)+"!A:J")+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:appends})});
+  if(appends.length)await api("/values/"+encodeURIComponent(quote(TAB)+"!A:K")+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:appends})});
   if(toSave.length||toDelete.length)await saveLocal(toSave,toDelete);
   localStorage.setItem(tombstoneKey,JSON.stringify(del));
   if(typeof window.gymRefresh==="function")await window.gymRefresh();
-  status("✓ Синхронизировано: "+new Date().toLocaleTimeString("ru-RU")+". Записей в облаке: "+merged.size);
+  status("✓ Автоматически синхронизировано: "+new Date().toLocaleTimeString("ru-RU")+". Записей в облаке: "+merged.size);window.dispatchEvent(new Event("gym-google-sync"));
  }catch(e){status("Ошибка: "+e.message)}finally{busy=false;$("syncSheets").disabled=false;if(needsResync){needsResync=false;void syncNow();}}
 }
 
@@ -103,10 +103,32 @@ function connect(){
    accessToken=response.access_token;expiresAt=Date.now()+(Number(response.expires_in)||3500)*1000-60000;
    $("connectSheets").textContent="↻ Обновить доступ Google";
    $("syncSheets").disabled=false;$("inspectSheets").disabled=false;
-   await inspect();await syncNow();
+   await inspect();await syncNow();window.dispatchEvent(new Event("gym-google-connected"));
  }});
  client.requestAccessToken({prompt:accessToken?"":"select_account"});
 }
+
+async function readLegacy(names){
+ if(!accessToken||Date.now()>expiresAt)throw Error("Для обновления истории требуется войти через Google");
+ const ranges=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:E1000")).join("&");
+ const data=await api("/values:batchGet?"+ranges+"&valueRenderOption=FORMATTED_VALUE");
+ const out={};names.forEach((name,i)=>out[name]=data.valueRanges?.[i]?.values||[]);
+ return out;
+}
+async function appendBody(date,weight,note){
+ const range=encodeURIComponent(quote("Мои данные")+"!A:C");
+ return api("/values/"+range+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:[[date,weight,note||""]]})});
+}
+window.gymLegacyApi={ready:()=>Boolean(accessToken&&Date.now()<expiresAt),read:readLegacy,appendBody};
+let lastAuto=0;
+async function autoRefresh(){
+ if(!accessToken||Date.now()>expiresAt||document.hidden||Date.now()-lastAuto<60000)return;
+ lastAuto=Date.now();await syncNow();
+}
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)void autoRefresh()});
+window.addEventListener("online",()=>{void autoRefresh()});
+setInterval(()=>{void autoRefresh()},90000);
+
 window.gymSheetDeleted=markDelete;
 window.gymSheetChanged=()=>{if(accessToken)writeQueue=writeQueue.then(()=>syncNow()).catch(()=>{});};
 window.gymSheetSync=syncNow;
