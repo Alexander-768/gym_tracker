@@ -285,6 +285,71 @@ async function appendBody(date,weight,note){
  const range=encodeURIComponent(quote("Мои данные")+"!A:C");
  return api("/values/"+range+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:[[date,weight,note||""]]})});
 }
+
+// One-time repair of legacy rows created by the old Sheets append bug.
+// Requires an explicit click in the connected user's browser.
+// Never touch correctly aligned A:F rows or records that cannot be verified.
+async function cleanupShiftedRows(){
+ if(!accessToken||Date.now()>expiresAt)throw Error("Сначала подключи Google.");
+ if(busy)throw Error("Синхронизация ещё идёт. Повтори после её завершения.");
+ const canonical=(await rows()).map(remoteRecord);
+ const byId=new Map(canonical.filter(e=>e.id&&Number(e.deletedAt||0)===0).map(e=>[e.id,e]));
+ const names=["Мои данные","Руки","Спина и плечи","Грудь","Ноги"];
+ const q=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:Z")).join("&");
+ const got=await api("/values:batchGet?"+q+"&valueRenderOption=FORMATTED_VALUE");
+ const sheetMeta=await sheets();
+ const plan=[];
+ const numeric=v=>{const n=Number(String(v??"").replace(/\s/g,"").replace(",","."));return Number.isFinite(n)?n:null};
+ const normalizedDate=v=>{
+  const str=String(v??"").trim();
+  if(/^\d{4}-\d{2}-\d{2}$/.test(str))return str;
+  const m=str.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})$/);
+  return m?m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0"):"";
+ };
+ for(let j=0;j<names.length;j++){
+  const name=names[j],cells=got.valueRanges?.[j]?.values||[];
+  const meta=sheetMeta.find(p=>p.title===name);
+  if(!meta)throw Error("Не найден лист "+name);
+  const body=name==="Мои данные";
+  const correctMarker=body?3:5;
+  const targets=[];
+  for(let i=1;i<cells.length;i++){
+   const row=cells[i]||[];
+   if(String(row[0]??"").trim()||String(row[1]??"").trim())continue;
+   // Previously corrupted records were shifted exactly two columns, from A:F to C:H.
+   const id=String(row[correctMarker+2]??"").trim(),source=byId.get(id);
+   if(!source||source.category!==(body?"Общий вес":name))continue;
+   const maxCol=correctMarker+2;
+   if(row.some((v,k)=>k>maxCol&&String(v??"").trim()))continue;
+   if(normalizedDate(row[2])!==source.date)continue;
+   if(body){
+    if(numeric(row[3])!==Number(source.weight))continue;
+   }else{
+    if(String(row[3]??"").trim()!==String(source.exercise??"").trim())continue;
+    if(numeric(row[4])!==Number(source.weight))continue;
+    const rep=String(row[5]??"").trim();
+    if(rep&&numeric(rep)!==Number(source.reps))continue;
+   }
+   targets.push({row:i+1,id,exercise:body?"Вес тела":source.exercise});
+  }
+  if(targets.length)plan.push({name,sheetId:meta.sheetId,targets});
+ }
+ const n=plan.reduce((acc,p)=>acc+p.targets.length,0);
+ if(!n)return {removed:0,message:"Кривых строк, которые можно безопасно распознать, не найдено."};
+ const summary=plan.map(x=>x.name+": "+x.targets.length).join("\n");
+ if(!confirm("Найдены "+n+" сдвинутых строк:\n"+summary+"\n\nУдалить их целиком? Это действие нельзя отменить в приложении. Правильные строки не затрагиваются."))return {removed:0,cancelled:true};
+ // Work bottom-up on each sheet so earlier row numbers remain stable.
+ const requests=[];
+ for(const entry of plan)for(const t of [...entry.targets].sort((a,b)=>b.row-a.row)){
+  requests.push({deleteDimension:{range:{sheetId:entry.sheetId,dimension:"ROWS",startIndex:t.row-1,endIndex:t.row}}});
+ }
+ await api(":batchUpdate",{method:"POST",body:JSON.stringify({requests})});
+ publishSync("success","Удалено "+n+" сдвинутых строк из старых листов. Основной журнал не затронут.");
+ window.dispatchEvent(new Event("gym-google-sync"));
+ return {removed:n,message:"Удалено "+n+" кривых строк."};
+}
+window.gymCleanupShifted=cleanupShiftedRows;
+
 window.gymLegacyApi={ready:()=>Boolean(accessToken&&Date.now()<expiresAt),read:readLegacy,appendBody};
 let lastAuto=0;
 async function autoRefresh(){
