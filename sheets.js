@@ -33,7 +33,7 @@ function remoteRecord({r,index}){
  const [id,date,exercise,weight,reps,sets,note,created,updated,deleted,category]=r;
  return {id:String(id),date:String(date||""),exercise:String(exercise||""),weight:Number(weight),reps:Number(reps),sets:Number(sets),note:String(note||""),createdAt:Number(created)||0,updatedAt:Number(updated)||0,deletedAt:Number(deleted)||0,category:String(category||"Без группы"),row:index};
 }
-const serialize=e=>[e.id,e.date,e.exercise,e.weight,e.reps,e.sets,e.note||"",e.createdAt||Date.now(),e.updatedAt||Date.now(),e.deletedAt||"",e.category||"Без группы"];
+const serialize=e=>[e.id,e.date,e.exercise,e.weight,e.reps==null?"":e.reps,e.sets,e.note||"",e.createdAt||Date.now(),e.updatedAt||Date.now(),e.deletedAt||"",e.category||"Без группы"];
 async function getLocal(){
  // Existing app has private IndexedDB module variables. Read same store independently.
  const d=await new Promise((resolve,reject)=>{const q=indexedDB.open("gym-tracker-v1");q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)});
@@ -197,7 +197,7 @@ if(localStorage.getItem(connectedBeforeKey)==="yes"){
 
 async function readLegacy(names){
  if(!accessToken||Date.now()>expiresAt)throw Error("Для обновления истории требуется войти через Google");
- const ranges=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:E1000")).join("&");
+ const ranges=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:F5000")).join("&");
  const data=await api("/values:batchGet?"+ranges+"&valueRenderOption=FORMATTED_VALUE");
  const out={};names.forEach((name,i)=>out[name]=data.valueRanges?.[i]?.values||[]);
  return out;
