@@ -6,7 +6,7 @@ const TABS=["Общий вес","Грудь","Ноги","Руки","Спина �
 const CACHE="gym_ui_active_tab_v2";
 const icons={"Грудь":"◈","Ноги":"♧","Руки":"◉","Спина и плечи":"✦","Другое":"☷"};
 let active=TABS.includes(localStorage.getItem(CACHE))?localStorage.getItem(CACHE):"Общий вес";
-let detail=null,showAll=false,modal=null,lastStatus="",writing=false,settingsMode=false;
+let detail=null,showAll=false,modal=null,lastStatus="",writing=false,settingsMode=false,migrationPreview=null,migrationBusy=false,migrationNotice="";
 let root=$("modernApp");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nfmt=(v,d=1)=>Number(v).toLocaleString("ru-RU",{maximumFractionDigits:d});
@@ -70,7 +70,28 @@ function detailView(){
  return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span></div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
 }
 function settingsView(){
- return '<div class="m-group-head"><h2>Настройки</h2></div><div class="m-panel m-settings"><h3 style="margin:0">Google Sheets</h3><div class="m-dim">Все данные из твоей Google-таблицы. После подключения история обновляется автоматически.</div><div class="m-dim">'+(isConnected()?"● Google подключён":"● Google не подключён")+'</div><button class="m-add-sm" data-action="connect">Подключить Google</button><button class="m-muted-action" data-action="sync">↻ Синхронизировать</button><div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div><button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div><div class="m-panel m-settings"><h3 style="margin:0">Очистка старых дублей</h3><div class="m-dim">Удалить только строки, которые предыдущая версия ошибочно записала со сдвигом в C–H. Перед удалением покажем количество и попросим подтверждение. Записи без подтверждённого ID не затронем.</div><button class="m-muted-action" data-action="cleanup-shifted">Найти и удалить кривые строки</button><div class="m-dim" id="m-cleanup-status"></div></div><div class="m-panel m-settings"><h3 style="margin:0">Резервная копия</h3><div class="m-dim">Данные, созданные в приложении, можно сохранить в JSON.</div><button class="m-muted-action" data-action="export">Скачать копию JSON</button><button class="m-muted-action" data-action="import">Импортировать JSON</button></div>';
+ let preview="";
+ if(migrationPreview){
+  preview='<div class="m-panel"><h3 style="margin:0 0 10px">Что будет перенесено</h3><div class="m-dim">Исторических записей: <b>'+migrationPreview.toImport+'</b></div><div class="m-dim">Тестовых строк к удалению из gym_tracker_app: <b>'+migrationPreview.toRemoveCloud+'</b></div><div class="m-dim">Локальных записей к замене: <b>'+migrationPreview.toRemoveLocal+'</b></div>'+
+    Object.entries(migrationPreview.perTab).map(([name,count])=>'<div class="m-detail-stats"><span>'+esc(name)+'</span><b>'+count+'</b></div>').join("")+
+    '<div class="m-dim" style="margin-top:10px">Без даты: '+migrationPreview.stats.missingDates+'. Без повторений: '+migrationPreview.stats.missingReps+'. Пропущено зеркальных дублей: '+migrationPreview.stats.mirrored+'.</div>'+
+    '<button class="m-save" data-action="commit-migration" type="button" '+(migrationBusy?"disabled":"")+'>Подтвердить перенос и очистку тестовых логов</button></div>';
+ }
+ return '<div class="m-group-head"><h2>Настройки</h2></div>'+
+ '<div class="m-panel m-settings"><h3 style="margin:0">Google Sheets</h3><div class="m-dim">Единый журнал: <b>gym_tracker_app</b>. Старые листы остаются архивом и больше не изменяются приложением.</div>'+
+ '<div class="m-dim">'+(isConnected()?"● Google подключён":"● Google не подключён")+'</div>'+
+ '<button class="m-add-sm" data-action="connect">Подключить Google</button>'+
+ '<button class="m-muted-action" data-action="sync">↻ Синхронизировать</button>'+
+ '<div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div>'+
+ '<button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div>'+
+ '<div class="m-panel m-settings"><h3 style="margin:0">Однократный перенос истории</h3>'+
+ '<div class="m-dim">Перенесём старые данные в gym_tracker_app, удалим все прежние тестовые логи приложения и заменим локальный кеш. Старые вкладки не трогаем. Сначала покажем количество строк.</div>'+
+ '<button class="m-muted-action" data-action="prepare-migration" '+(migrationBusy?"disabled":"")+'>Проверить, что будет перенесено и удалено</button>'+
+ '<div class="m-dim" id="m-migration-status">'+esc(migrationNotice)+'</div></div>'+preview+
+ '<div class="m-panel m-settings"><h3 style="margin:0">Резервная копия</h3><div class="m-dim">Перед переносом приложение сохранит копию текущих логов и локальных записей в браузере.</div>'+
+ '<button class="m-muted-action" data-action="migration-backup">Скачать копию до миграции (если есть)</button>'+
+ '<button class="m-muted-action" data-action="export">Скачать текущие записи JSON</button>'+
+ '<button class="m-muted-action" data-action="import">Импортировать JSON</button></div>';
 }
 function overlayView(){
  if(!modal||settingsMode)return "";
@@ -132,6 +153,22 @@ root.addEventListener("click",e=>{
  if(action==="sync")$("syncSheets").click();
  if(action==="export")$("export").click();
  if(action==="import")$("importBtn").click();
+ if(action==="prepare-migration"){
+  if(migrationBusy)return;
+  migrationBusy=true;migrationNotice="Читаю старые листы и сравниваю с gym_tracker_app...";render();
+  window.gymMigration?.prepare().then(p=>{migrationPreview=p;migrationNotice="Проверка завершена. Посмотри цифры ниже.";}).catch(e=>{migrationPreview=null;migrationNotice="Ошибка: "+e.message;}).finally(()=>{migrationBusy=false;render()});
+ }
+ if(action==="commit-migration"){
+  if(migrationBusy||!migrationPreview)return;
+  const p=migrationPreview;
+  const text="Удалить "+p.toRemoveCloud+" текущих записей из gym_tracker_app, заменить "+p.toRemoveLocal+" локальных записей и импортировать "+p.toImport+" исторических?\n\nСтарые вкладки останутся без изменений. Это разовая операция.";
+  if(!confirm(text))return;
+  migrationBusy=true;migrationNotice="Выполняется миграция... Не закрывай приложение.";render();
+  window.gymMigration?.commit().then(result=>{migrationPreview=null;migrationNotice="✓ Перенос завершён: "+result.imported+" исторических записей. Тестовые логи удалены.";}).catch(e=>{migrationNotice="Ошибка переноса: "+e.message;}).finally(()=>{migrationBusy=false;render()});
+ }
+ if(action==="migration-backup"){
+  try{window.gymMigration?.downloadBackup()}catch(e){migrationNotice=e.message;render();}
+ }
  if(action==="cleanup-shifted"){const out=$("m-cleanup-status");if(out)out.textContent="Проверяю строки в Google Sheets...";const btn=button;btn.disabled=true;Promise.resolve().then(()=>window.gymCleanupShifted?.()).then(result=>{const text=result?.cancelled?"Удаление отменено.":result?.message||"Очистка недоступна.";const p=$("m-cleanup-status");if(p)p.textContent=text;}).catch(err=>{const p=$("m-cleanup-status");if(p)p.textContent="Ошибка: "+err.message}).finally(()=>{btn.disabled=false});}
  if(action==="open-sheet")window.open("https://docs.google.com/spreadsheets/d/1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs/edit","_blank","noopener");
 });
