@@ -96,16 +96,62 @@ async function inspect(){
  catch(e){status("Ошибка: "+e.message)}
 }
 function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
-function connect(){
- if(!window.google?.accounts?.oauth2){status("Не удалось загрузить Google Identity Services. Обнови страницу и проверь блокировщики.");return;}
- if(!client)client=google.accounts.oauth2.initTokenClient({client_id:CLIENT_ID,scope:SCOPE,callback:async response=>{
-   if(response.error||!response.access_token){status("Авторизация не удалась: "+(response.error||"нет токена"));return;}
-   accessToken=response.access_token;expiresAt=Date.now()+(Number(response.expires_in)||3500)*1000-60000;
+const connectedBeforeKey="gym_google_previously_connected_v1";
+let authRequestInFlight=false,autoAuthAttempted=false;
+function setupClient(){
+ if(client)return true;
+ if(!window.google?.accounts?.oauth2)return false;
+ client=google.accounts.oauth2.initTokenClient({
+  client_id:CLIENT_ID,scope:SCOPE,
+  error_callback:error=>{
+   authRequestInFlight=false;
+   status("Google не разрешил автоматический вход ("+(error?.type||"окно заблокировано")+"). Нажми «Подключить Google».");
+  },
+  callback:async response=>{
+   authRequestInFlight=false;
+   if(response.error||!response.access_token){
+    status("Требуется повторное подключение Google: "+(response.error||"нет токена"));
+    return;
+   }
+   accessToken=response.access_token;
+   expiresAt=Date.now()+(Number(response.expires_in)||3500)*1000-60000;
+   localStorage.setItem(connectedBeforeKey,"yes");
    $("connectSheets").textContent="↻ Обновить доступ Google";
    $("syncSheets").disabled=false;$("inspectSheets").disabled=false;
-   await inspect();await syncNow();window.dispatchEvent(new Event("gym-google-connected"));
- }});
- client.requestAccessToken({prompt:accessToken?"":"select_account"});
+   try{
+    await Promise.all([inspect(),syncNow()]);
+    window.dispatchEvent(new Event("gym-google-connected"));
+   }catch(err){status("Ошибка при загрузке данных: "+err.message)}
+  }
+ });
+ return true;
+}
+function requestToken(automatic=false){
+ if(authRequestInFlight)return;
+ if(!setupClient()){
+  status("Не загрузилась авторизация Google. Проверь подключение к интернету.");
+  return;
+ }
+ authRequestInFlight=true;
+ if(automatic)status("Пробую автоматически подключить Google...");
+ try{client.requestAccessToken({prompt:automatic?"none":""});}
+ catch(err){authRequestInFlight=false;status("Для подключения Google нажми кнопку: "+err.message);}
+}
+function connect(){requestToken(false);}
+function autoConnect(){
+ if(autoAuthAttempted||!navigator.onLine||localStorage.getItem(connectedBeforeKey)!=="yes")return;
+ if(!window.google?.accounts?.oauth2)return;
+ autoAuthAttempted=true;
+ requestToken(true);
+}
+if(localStorage.getItem(connectedBeforeKey)==="yes"){
+ // GIS is loaded asynchronously; retry initialization briefly without launching repeated popups.
+ let tries=0;
+ const ready=setInterval(()=>{
+  if(++tries>30||autoAuthAttempted){clearInterval(ready);return;}
+  if(window.google?.accounts?.oauth2){clearInterval(ready);autoConnect();}
+ },300);
+ window.addEventListener("online",()=>{if(!accessToken)autoConnect();});
 }
 
 async function readLegacy(names){
