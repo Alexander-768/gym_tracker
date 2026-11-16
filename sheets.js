@@ -46,6 +46,62 @@ async function saveLocal(changes,deletedIds){
 const tombstoneKey="gym_tracker_tombstones_v1";
 const tombstones=()=>{try{return JSON.parse(localStorage.getItem(tombstoneKey)||"{}")}catch{return {}}};
 const markDelete=id=>{const t=tombstones();t[id]=Date.now();localStorage.setItem(tombstoneKey,JSON.stringify(t));};
+
+const MIRROR_TABS=["Мои данные","Руки","Спина и плечи","Грудь","Ноги"];
+// A protected record ID in D for body weight or F for workout sheets
+// allows retries and repairs without blindly appending duplicates.
+async function mirrorRecords(records){
+ const names=MIRROR_TABS;
+ const ranges=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:F")).join("&");
+ const payload=await api("/values:batchGet?"+ranges+"&valueRenderOption=UNFORMATTED_VALUE");
+ const originals={};
+ for(let i=0;i<names.length;i++)originals[names[i]]=payload.valueRanges?.[i]?.values||[];
+ const updates=[],appends={};
+ for(const name of names){
+  const rows=originals[name],markerCol=name==="Мои данные"?3:5;
+  const existingHeader=rows[0]?.[markerCol];
+  if(existingHeader && existingHeader!=="gym_tracker_id")
+   throw Error("В листе «"+name+"» служебный столбец уже занят. Запись остановлена во избежание потери данных.");
+  if(!existingHeader)updates.push({range:quote(name)+"!"+(markerCol===3?"D1":"F1"),values:[["gym_tracker_id"]]});
+  appends[name]=[];
+ }
+ const known={};
+ for(const name of names){
+  const markerCol=name==="Мои данные"?3:5;
+  const map=new Map();
+  (originals[name]||[]).slice(1).forEach((r,i)=>{const id=String(r[markerCol]||"").trim();if(id)map.set(id,i+2);});
+  known[name]=map;
+ }
+ for(const e of records){
+  // Legacy records without a category aren't moved or guessed.
+  const name=e.category==="Общий вес"?"Мои данные":MIRROR_TABS.includes(e.category)?e.category:null;
+  if(!name||!e.id)continue;
+  const dead=Number(e.deletedAt||0)>0;
+  const body=name==="Мои данные";
+  const fields=body
+    ? [e.date?e.date.split("-").reverse().join("."):"",Number(e.weight),e.note||"",e.id]
+    : [e.date?e.date.split("-").reverse().join("."):"",e.exercise||"",Number(e.weight),e.reps==null?"":Number(e.reps),e.note||"",e.id];
+  for(const oldName of names){
+   const row=known[oldName].get(e.id);
+   if(!row)continue;
+   // Tombstones keep their ID so a retry doesn't append the same record.
+   const shouldClear=dead||oldName!==name;
+   const newValues=shouldClear?(oldName==="Мои данные"?["","","",e.id]:["","","","","",e.id]):fields;
+   const oldRows=originals[oldName]||[];
+   const oldValue=oldRows[row-1]||[];
+   if(JSON.stringify(oldValue.slice(0,newValues.length).map(x=>String(x??"")))!==JSON.stringify(newValues.map(x=>String(x??""))))
+    updates.push({range:quote(oldName)+"!A"+row+":"+(oldName==="Мои данные"?"D":"F")+row,values:[newValues]});
+  }
+  if(!dead && !known[name].has(e.id))appends[name].push(fields);
+ }
+ if(updates.length)await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:updates})});
+ for(const name of names){
+  if(!appends[name].length)continue;
+  await api("/values/"+encodeURIComponent(quote(name)+(name==="Мои данные"?"!A:D":"!A:F"))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
+   {method:"POST",body:JSON.stringify({values:appends[name]})});
+ }
+}
+
 async function syncNow(){
  if(!accessToken)return; if(busy){needsResync=true;return;}
  busy=true;$("syncSheets").disabled=true;status("Синхронизация...");
@@ -70,6 +126,8 @@ async function syncNow(){
   if(updates.length)await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"RAW",data:updates})});
   if(appends.length)await api("/values/"+encodeURIComponent(quote(TAB)+"!A:K")+":append?valueInputOption=RAW&insertDataOption=INSERT_ROWS",{method:"POST",body:JSON.stringify({values:appends})});
   if(toSave.length||toDelete.length)await saveLocal(toSave,toDelete);
+  // After the canonical app tab is written, mirror the same records to familiar sheets.
+  await mirrorRecords([...merged.values()]);
   localStorage.setItem(tombstoneKey,JSON.stringify(del));
   if(typeof window.gymRefresh==="function")await window.gymRefresh();
   status("✓ Автоматически синхронизировано: "+new Date().toLocaleTimeString("ru-RU")+". Записей в облаке: "+merged.size);window.dispatchEvent(new Event("gym-google-sync"));
