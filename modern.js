@@ -17,10 +17,10 @@ const data=()=>window.gymHistoryData?.()||{workouts:[],body:[],notes:[]};
 const isConnected=()=>Boolean(window.gymLegacyApi?.ready?.());
 function ordered(records){return [...records].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||Number(b.updatedAt||0)-Number(a.updatedAt||0)||Number(b.row||0)-Number(a.row||0))}
 function points(records){return [...records].filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date||"")&&dnum(x.weight)!==null&&Number(x.weight)>=0).sort((a,b)=>a.date.localeCompare(b.date))}
-function chart(records,large=false){
+function chart(records,large=false,mode="last"){
  const ps=points(records);
  if(!ps.length)return '<div class="m-empty">Пока недостаточно данных для графика</div>';
- const daily=new Map();for(const e of ps)daily.set(e.date,Math.max(Number(e.weight),daily.get(e.date)??-Infinity));
+ const daily=new Map();for(const e of ps)daily.set(e.date,mode==="max"?Math.max(Number(e.weight),daily.get(e.date)??-Infinity):Number(e.weight));
  const vals=[...daily].map(([date,weight])=>({date,weight}));
  const min=Math.min(...vals.map(v=>v.weight)),max=Math.max(...vals.map(v=>v.weight));
  const span=Math.max(max-min,0.8),lower=Math.max(0,min-span*.28),upper=max+span*.28;
@@ -67,7 +67,7 @@ function otherView(){
 }
 function detailView(){
  const h=exerciseRecords(active,detail),arr=ordered(h),recent=arr.find(x=>dnum(x.weight)!==null)||arr[0];
- return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true)+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span></div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
+ return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span></div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
 }
 function settingsView(){
  return '<div class="m-group-head"><h2>Настройки</h2></div><div class="m-panel m-settings"><h3 style="margin:0">Google Sheets</h3><div class="m-dim">Все данные из твоей Google-таблицы. После подключения история обновляется автоматически.</div><div class="m-dim">'+(isConnected()?"● Google подключён":"● Google не подключён")+'</div><button class="m-add-sm" data-action="connect">Подключить Google</button><button class="m-muted-action" data-action="sync">↻ Синхронизировать</button><div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div><button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div><div class="m-panel m-settings"><h3 style="margin:0">Резервная копия</h3><div class="m-dim">Данные, созданные в приложении, можно сохранить в JSON.</div><button class="m-muted-action" data-action="export">Скачать копию JSON</button><button class="m-muted-action" data-action="import">Импортировать JSON</button></div>';
