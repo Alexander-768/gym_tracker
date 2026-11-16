@@ -56,60 +56,87 @@ const MIRROR_TABS=["Мои данные","Руки","Спина и плечи","
 // A protected record ID in D for body weight or F for workout sheets
 // allows retries and repairs without blindly appending duplicates.
 async function mirrorRecords(records){
- // Only rows previously marked with our record ID are eligible for update.
+ // Explicit cell coordinates instead of values.append: Sheets may detect a
+ // table starting at column C and append records to C:H.
  const names=MIRROR_TABS;
- const ranges=names.map(n=>"ranges="+encodeURIComponent(quote(n)+"!A1:F")).join("&");
- const payload=await api("/values:batchGet?"+ranges+"&valueRenderOption=UNFORMATTED_VALUE");
+ const ranges=names.map(name=>"ranges="+encodeURIComponent(quote(name)+"!A1:Z")).join("&");
+ const response=await api("/values:batchGet?"+ranges+"&valueRenderOption=UNFORMATTED_VALUE");
  const tabs={};
- for(let i=0;i<names.length;i++)tabs[names[i]]=payload.valueRanges?.[i]?.values||[];
- const headerUpdates=[], rowUpdates=[], additions={};
+ names.forEach((name,i)=>tabs[name]=response.valueRanges?.[i]?.values||[]);
+ const writes=[],warnings=[];
  for(const name of names){
-  const col=name==="Мои данные"?3:5,all=tabs[name]||[];
-  const header=String(all[0]?.[col]||"").trim();
-  if(header && header!=="gym_tracker_id")throw Error("В «"+name+"» служебный столбец уже занят; зеркало остановлено.");
-  if(!header&&all.slice(1).some(r=>String(r[col]??"").trim()))
-    throw Error("Служебный столбец «"+name+"» уже содержит данные.");
-  if(!header)headerUpdates.push({range:quote(name)+"!"+(col===3?"D1":"F1"),values:[["gym_tracker_id"]]});
+  const grid=tabs[name],markerCol=name==="Мои данные"?3:5;
+  const endCol=name==="Мои данные"?"D":"F";
+  const header=String(grid[0]?.[markerCol]??"").trim();
+  if(header && header!=="gym_tracker_id")throw Error("В листе «"+name+"» столбец "+endCol+" уже занят. Сохраняем существующие данные, зеркало остановлено.");
+  if(!header)writes.push({range:quote(name)+"!"+endCol+"1",values:[["gym_tracker_id"]]});
   const existing=new Map();
-  all.slice(1).forEach((r,i)=>{const id=String(r[col]||"").trim();if(id)existing.set(id,{row:i+2,cells:r});});
-  additions[name]=[];
+  for(let i=1;i<grid.length;i++){
+   const row=grid[i]||[];
+   for(let col=0;col<row.length;col++){
+    const value=String(row[col]??"").trim();
+    if(/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(value)){
+     if(!existing.has(value))existing.set(value,[]);
+     existing.get(value).push({row:i+1,col,cells:row});
+    }
+   }
+  }
+  // Include every occupied column so notes or previously shifted rows
+  // never get overwritten. This may intentionally leave blank gaps.
+  let lastUsed=1;
+  for(let i=0;i<grid.length;i++)
+   if((grid[i]||[]).some(v=>v!==""&&v!==null&&v!==undefined))lastUsed=i+1;
+  let nextRow=Math.max(2,lastUsed+1);
   for(const e of records){
    if(!e?.id)continue;
    const target=e.category==="Общий вес"?"Мои данные":MIRROR_TABS.includes(e.category)?e.category:null;
-   const isTarget=target===name,dead=Number(e.deletedAt||0)>0;
+   const matching=existing.get(e.id)||[];
+   const appropriate=matching.find(m=>m.col===markerCol);
    const iso=String(e.date||"");
-   const date=/^\d{4}-\d{2}-\d{2}$/.test(iso)?iso.slice(8,10)+"."+iso.slice(5,7)+"."+iso.slice(0,4):iso;
-   const fields=isTarget&&!dead
-    ? name==="Мои данные"?[date,Number(e.weight),e.note||"",e.id]:[date,e.exercise||"",Number(e.weight),e.reps==null?"":Number(e.reps),e.note||"",e.id]
-    : name==="Мои данные"?["","","",e.id]:["","","","","",e.id];
-   const match=existing.get(e.id);
-   if(match){
-    // Rows without our ID are never overwritten.
-    const old=match.cells.slice(0,fields.length);
-    const equal=fields.every((v,i)=>{
-      const oldval=old[i];
-      if(v===""&&(oldval===undefined||oldval===null||oldval===""))return true;
-      // Sheets converts DD.MM.YYYY input into a date serial or formatted value;
-      // don't rewrite unchanged dates on every sync.
-      if(i===0&&oldval!==undefined&&String(oldval)!==String(v)){
-        if(typeof oldval==="number"&&oldval>30000&&oldval<90000){
-          const asDate=new Date(Date.UTC(1899,11,30)+Math.floor(oldval)*86400000).toISOString().slice(0,10);
-          if(asDate===iso)return true;
-        }
+   const d=/^\d{4}-\d{2}-\d{2}$/.test(iso)?iso.slice(8,10)+"."+iso.slice(5,7)+"."+iso.slice(0,4):iso;
+   const active=target===name&&!Number(e.deletedAt||0);
+   const newValues=active?(name==="Мои данные"
+       ?[d,Number(e.weight),e.note||"",e.id]
+       :[d,e.exercise||"",Number(e.weight),e.reps==null?"":Number(e.reps),e.note||"",e.id])
+       :(name==="Мои данные"?["","","",e.id]:["","","","","",e.id]);
+   if(appropriate){
+    const row=appropriate.row;
+    const old=appropriate.cells;
+    const same=newValues.every((v,i)=>{
+      const oldValue=old[i];
+      if((v===""||v==null)&&(oldValue===""||oldValue==null))return true;
+      if(i===0&&typeof oldValue==="number"&&oldValue>30000&&oldValue<90000){
+       const stored=new Date(Date.UTC(1899,11,30)+Math.floor(oldValue)*86400000).toISOString().slice(0,10);
+       if(stored===iso)return true;
       }
-      return String(oldval??"")===String(v);
+      return String(v)===String(oldValue??"");
     });
-    if(!equal)rowUpdates.push({range:quote(name)+"!A"+match.row+":"+(name==="Мои данные"?"D":"F")+match.row,values:[fields]});
-   }else if(isTarget&&!dead){additions[name].push(fields);existing.set(e.id,{row:-1,cells:fields});}
+    if(!same)writes.push({range:quote(name)+"!A"+row+":"+endCol+row,values:[newValues]});
+   }else if(matching.length){
+    // Already mirrored by an earlier buggy append in a shifted column.
+    // Do not append a sixth duplicate and do not overwrite malformed rows.
+    if(target===name)warnings.push(name+": обнаружены ранее сдвинутые строки ("+e.id+"). Автоматически не исправлены.");
+   }else if(active){
+    writes.push({range:quote(name)+"!A"+nextRow+":"+endCol+nextRow,values:[newValues]});
+    existing.set(e.id,[{row:nextRow,col:markerCol,cells:newValues}]);
+    nextRow++;
+   }
   }
  }
- if(headerUpdates.length||rowUpdates.length)
-  await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:[...headerUpdates,...rowUpdates]})});
- for(const name of names){
-  if(!additions[name].length)continue;
-  await api("/values/"+encodeURIComponent(quote(name)+(name==="Мои данные"?"!A:D":"!A:F"))+":append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS",
-   {method:"POST",body:JSON.stringify({values:additions[name]})});
+ if(writes.length){
+  // Ensure each sheet has enough allocated rows before addressing exact cells.
+  const properties=await sheets(),resize=[];
+  for(const name of names){
+   const meta=properties.find(x=>x.title===name);
+   if(!meta)throw Error("Не найден лист: "+name);
+   const maxRow=Math.max(0,...writes.filter(w=>w.range.startsWith(quote(name)+"!")).map(w=>Number(w.range.match(/\d+$/)?.[0]||0)));
+   const oldCount=Number(meta.gridProperties?.rowCount||0);
+   if(maxRow>oldCount)resize.push({updateSheetProperties:{properties:{sheetId:meta.sheetId,gridProperties:{rowCount:Math.max(maxRow,oldCount+100)}},fields:"gridProperties.rowCount"}});
+  }
+  if(resize.length)await api(":batchUpdate",{method:"POST",body:JSON.stringify({requests:resize})});
+  await api("/values:batchUpdate",{method:"POST",body:JSON.stringify({valueInputOption:"USER_ENTERED",data:writes})});
  }
+ return warnings;
 }
 async function syncNow(){
  if(!accessToken||Date.now()>expiresAt){publishSync("auth","Google не подключён. Записи сохранены локально и ждут синхронизации.");return false;} if(busy){needsResync=true;return false;}
@@ -138,14 +165,15 @@ async function syncNow(){
   // Canonical writes must succeed independently of legacy mirroring.
   publishSync("main-ok","Главный журнал Google Sheets обновлён. Проверяю привычные листы...");
   let mirrorError=null;
-  try{await mirrorRecords([...merged.values()]);}
+  let mirrorWarnings=[];
+  try{mirrorWarnings=await mirrorRecords([...merged.values()]);}
   catch(e){mirrorError=e;}
   localStorage.setItem(tombstoneKey,JSON.stringify(del));
   if(typeof window.gymRefresh==="function")await window.gymRefresh();
   if(mirrorError){
    publishSync("partial","✓ gym_tracker_app обновлён, но ошибка в привычных листах: "+mirrorError.message);
   }else{
-   publishSync("success","✓ Google Sheets синхронизирован: "+new Date().toLocaleTimeString("ru-RU"));
+   publishSync(mirrorWarnings.length?"partial":"success",mirrorWarnings.length?"✓ Новые записи синхронизированы. Внимание: "+mirrorWarnings[0]:"✓ Google Sheets синхронизирован: "+new Date().toLocaleTimeString("ru-RU"));
   }
   window.dispatchEvent(new Event("gym-google-sync"));
   return !mirrorError;
