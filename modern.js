@@ -169,7 +169,6 @@ root.addEventListener("click",e=>{
  if(action==="migration-backup"){
   try{window.gymMigration?.downloadBackup()}catch(e){migrationNotice=e.message;render();}
  }
- if(action==="cleanup-shifted"){const out=$("m-cleanup-status");if(out)out.textContent="Проверяю строки в Google Sheets...";const btn=button;btn.disabled=true;Promise.resolve().then(()=>window.gymCleanupShifted?.()).then(result=>{const text=result?.cancelled?"Удаление отменено.":result?.message||"Очистка недоступна.";const p=$("m-cleanup-status");if(p)p.textContent=text;}).catch(err=>{const p=$("m-cleanup-status");if(p)p.textContent="Ошибка: "+err.message}).finally(()=>{btn.disabled=false});}
  if(action==="open-sheet")window.open("https://docs.google.com/spreadsheets/d/1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs/edit","_blank","noopener");
 });
 root.addEventListener("change",e=>{if(e.target.id==="m-exercise"){$("m-newexercise").style.display=e.target.value==="__new"?"":"none";}});
