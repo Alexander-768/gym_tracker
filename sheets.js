@@ -73,13 +73,28 @@ async function syncNow(){
    if(migrationFence>1000000000000&&!rmap.has(id)&&Number(at)<migrationFence)delete del[id];
   const merged=new Map();
   for(const x of rr)merged.set(x.id,x);
-  for(const x of local){if(staleIds.has(x.id))continue;const old=merged.get(x.id);if(!old || Number(x.updatedAt)>=Number(old.updatedAt))merged.set(x.id,x);}
-  for(const [id,at] of Object.entries(del)){const old=merged.get(id);if(!old||Number(at)>Number(old.updatedAt))merged.set(id,{id,deletedAt:Number(at),updatedAt:Number(at),createdAt:old?.createdAt||Number(at),date:old?.date||"",exercise:old?.exercise||"",weight:old?.weight||0,reps:old?.reps||0,sets:old?.sets||0,note:old?.note||""});}
+  for(const x of local){
+   if(staleIds.has(x.id))continue;
+   const old=merged.get(x.id);
+   // A deletion is terminal for a record ID, even if another device has a stale edit.
+   if(!old || (!Number(old.deletedAt||0)&&Number(x.deletedAt||0)) ||
+      (Boolean(Number(old.deletedAt||0))===Boolean(Number(x.deletedAt||0))&&Number(x.updatedAt)>Number(old.updatedAt)))merged.set(x.id,x);
+  }
+  for(const [id,at] of Object.entries(del)){
+   const old=merged.get(id);
+   if(!old||!Number(old.deletedAt||0)||Number(at)>Number(old.deletedAt||0)){
+    merged.set(id,{...(old||{id,date:"",exercise:"",weight:null,reps:null,sets:null,note:"",category:"Без группы",createdAt:Number(at)}),deletedAt:Number(at),updatedAt:Math.max(Number(at),Number(old?.updatedAt||0))});
+   }
+  }
   const toSave=[],toDelete=[...staleIds],updates=[],appends=[];
   for(const e of merged.values()){
    const isDeleted=Number(e.deletedAt)>0;
    const localOld=lmap.get(e.id);
-   if(isDeleted){if(localOld)toDelete.push(e.id);if(Number(del[e.id]||0)<Number(e.deletedAt||0))del[e.id]=Number(e.deletedAt);}
+   if(isDeleted){
+    // Retain the complete tombstoned record locally until and after upload.
+    if(!localOld||!Number(localOld.deletedAt||0)||Number(localOld.deletedAt)!==Number(e.deletedAt)||Number(localOld.updatedAt||0)<Number(e.updatedAt||0))toSave.push({...e,row:undefined});
+    if(Number(del[e.id]||0)<Number(e.deletedAt||0))del[e.id]=Number(e.deletedAt);
+   }
    else if(!localOld || Number(localOld.updatedAt)<Number(e.updatedAt))toSave.push({...e,deletedAt:undefined,row:undefined});
    const remoteOld=rmap.get(e.id);
    if(!remoteOld)appends.push(serialize(e));
