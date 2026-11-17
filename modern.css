@@ -20,3 +20,6 @@ body>.shell,body>.tabs{display:none!important}
 
 /* Individual history entry deletion */
 .m-delete-record{flex:0 0 34px;width:34px;height:34px;display:grid;place-items:center;padding:0;border:1px solid #4b3541;border-radius:10px;background:#30212b;color:#ff98a5;margin-left:auto}.m-delete-record:hover{background:#522b39}.m-delete-record:focus-visible{outline:2px solid #ff98a5;outline-offset:2px}.m-history-row{gap:8px}.m-history-date{min-width:0}.m-history-weight{white-space:nowrap}@media(max-width:390px){.m-history-row{padding:10px 9px;gap:6px}.m-date-icon{padding:6px;font-size:14px}.m-history-date{font-size:11px}.m-history-delta{min-width:43px;padding:4px;font-size:11px}.m-delete-record{flex-basis:30px;width:30px;height:32px}}
+
+/* Notes beneath the result, visible only when provided. */
+.m-history-row:has(.m-history-note){flex-wrap:wrap}.m-history-note{flex:0 0 100%;display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border-radius:8px;background:#263344;color:#c0cddd;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.m-history-note svg{flex-shrink:0;margin-top:2px;color:#78d9b0}.m-history-note span{min-width:0}textarea.m-input{resize:vertical;min-height:62px;font:inherit}
