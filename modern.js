@@ -39,6 +39,26 @@ function spark(records){
  const d=coords.map((p,i)=>(i?"L":"M")+p[0].toFixed(1)+" "+p[1].toFixed(1)).join(" ");
  return '<svg viewBox="0 0 90 42" class="m-spark" aria-hidden="true"><path d="'+d+'" stroke="#67eeb1" stroke-width="2.5" fill="none" stroke-linecap="round"/></svg>';
 }
+function deleteButton(e){return '<button type="button" class="m-delete-record" data-action="delete-record" data-record-id="'+esc(e.id)+'" aria-label="Удалить запись" title="Удалить запись"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg></button>'}
+let deleting=false;
+async function deleteRecord(id){
+ if(deleting||writing||migrationBusy)return;
+ const d=data(),record=[...d.body,...d.workouts,...d.notes].find(e=>e.id===id);
+ if(!record)return;
+ const name=record.category==="Общий вес"?"Вес тела":record.exercise;
+ if(!confirm("Удалить запись «"+name+"» за "+formatDate(record.date)+(dnum(record.weight)!==null?" ("+nfmt(record.weight,2)+" кг)":"")+"?\nОна исчезнет из истории и графиков, но останется в Google Sheets с отметкой удаления."))return;
+ deleting=true;
+ try{
+  const now=Math.max(Date.now(),Number(record.updatedAt||0)+1);
+  const {source,row,...entry}=record;
+  await store({...entry,deletedAt:now,updatedAt:now});
+  await window.gymRefresh?.();
+  window.gymSheetChanged?.();
+  lastStatus="Запись удалена локально. Синхронизация с Google Sheets при подключении.";
+  render();
+ }catch(e){alert("Не удалось удалить запись: "+e.message)}
+ finally{deleting=false;}
+}
 function weightView(){
  const arr=ordered(data().body.filter(x=>Number.isFinite(x.weight))),latest=arr[0],first=arr[arr.length-1];
  const past=arr.find(x=>x.date && latest?.date && x.date<=new Date(new Date(latest.date+"T12:00:00").getTime()-7*86400000).toISOString().slice(0,10));
@@ -46,7 +66,7 @@ function weightView(){
  const cls=week!==null&&week<0?"negative":"";
  return '<div class="m-hero"><div class="m-hero-kicker">Общий вес</div><div class="m-dim" style="margin-top:10px">Текущий показатель</div><div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div class="m-value">'+(latest?nfmt(latest.weight,2)+" кг":"—")+'</div>'+(week===null?"":'<div class="m-change '+cls+'">'+(week>0?"↑ +":week<0?"↓ ":"")+nfmt(week,2)+' кг<br>за 7 дней</div>')+'</div>'+chart(arr,true)+'</div>'+
  '<div class="m-section-head"><h2>Последние записи</h2><button class="m-link" data-action="toggle-history">'+(showAll?"Скрыть":"Все записи →")+'</button></div>'+
- (arr.length?arr.slice(0,showAll?arr.length:7).map((e,i)=>{const older=arr[i+1],diff=older?e.weight-older.weight:null;return '<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+nfmt(e.weight,2)+' кг</span><span class="m-history-delta '+(diff===null?"neutral":diff<0?"negative":"")+'">'+(diff===null?"—":(diff>0?"+":"")+nfmt(diff,2))+'</span></div>'}).join(""):'<div class="m-empty">Подключи Google в настройках, чтобы увидеть историю веса тела</div>')+
+ (arr.length?arr.slice(0,showAll?arr.length:7).map((e,i)=>{const older=arr[i+1],diff=older?e.weight-older.weight:null;return '<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+nfmt(e.weight,2)+' кг</span><span class="m-history-delta '+(diff===null?"neutral":diff<0?"negative":"")+'">'+(diff===null?"—":(diff>0?"+":"")+nfmt(diff,2))+'</span>'+deleteButton(e)+'</div>'}).join(""):'<div class="m-empty">Подключи Google в настройках, чтобы увидеть историю веса тела</div>')+
  '<button class="m-fab" data-action="add" aria-label="Добавить взвешивание">+</button>';
 }
 function groupRecords(group){return data().workouts.filter(e=>e.category===group&&e.exercise&&e.exercise!=="Без названия")}
@@ -63,11 +83,11 @@ function exerciseView(group){
  return '<div class="m-group-head"><div><h2>'+esc(group)+'</h2><div class="m-group-sub">'+names.length+' упражнений'+(last?.date?" · последнее: "+formatDate(last.date):"")+'</div></div><button class="m-add-sm" data-action="add">+ Добавить</button></div>'+(cards||'<div class="m-empty">Пока нет упражнений в этой группе</div>')+'<button class="m-fab" data-action="add" aria-label="Добавить результат">+</button>';
 }
 function otherView(){
- const notes=ordered(data().notes);return '<div class="m-group-head"><div><h2>Другое</h2><div class="m-group-sub">Заметки из исходной таблицы</div></div></div>'+(notes.length?notes.map(e=>'<div class="m-history-row"><div><b>'+formatDate(e.date)+'</b><div class="m-dim" style="margin-top:7px">'+esc(e.note)+'</div></div></div>').join(""):'<div class="m-empty">Нет записей</div>');
+ const notes=ordered(data().notes);return '<div class="m-group-head"><div><h2>Другое</h2><div class="m-group-sub">Заметки из исходной таблицы</div></div></div>'+(notes.length?notes.map(e=>'<div class="m-history-row"><div><b>'+formatDate(e.date)+'</b><div class="m-dim" style="margin-top:7px">'+esc(e.note)+'</div></div>'+deleteButton(e)+'</div>').join(""):'<div class="m-empty">Нет записей</div>');
 }
 function detailView(){
  const h=exerciseRecords(active,detail),arr=ordered(h),recent=arr.find(x=>dnum(x.weight)!==null)||arr[0];
- return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span></div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
+ return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span>'+deleteButton(e)+'</div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
 }
 function settingsView(){
  let preview="";
@@ -144,6 +164,7 @@ root.addEventListener("click",e=>{
  const exercise=e.target.closest("[data-exercise]");if(exercise){detail=exercise.dataset.exercise;render();scrollTo({top:0,behavior:"instant"});return;}
  const button=e.target.closest("[data-action]");if(!button)return;
  const action=button.dataset.action;
+ if(action==="delete-record"){void deleteRecord(button.dataset.recordId);return;}
  if(action==="close"){modal=null;render();}
  if(action==="add")showModal(detail);
  if(action==="back"){detail=null;render();}
