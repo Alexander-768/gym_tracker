@@ -23,3 +23,5 @@ body>.shell,body>.tabs{display:none!important}
 
 /* Notes beneath the result, visible only when provided. */
 .m-history-row:has(.m-history-note){flex-wrap:wrap}.m-history-note{flex:0 0 100%;display:flex;align-items:flex-start;gap:7px;padding:8px 10px;border-radius:8px;background:#263344;color:#c0cddd;font-size:12px;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}.m-history-note svg{flex-shrink:0;margin-top:2px;color:#78d9b0}.m-history-note span{min-width:0}textarea.m-input{resize:vertical;min-height:62px;font:inherit}
+
+.m-editable-row{cursor:pointer;transition:background .15s}.m-editable-row:hover{background:#263344}.m-editable-row:focus-visible{outline:2px solid #78d9b0;outline-offset:2px}
