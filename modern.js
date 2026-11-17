@@ -67,7 +67,7 @@ function weightView(){
  const cls=week!==null&&week<0?"negative":"";
  return '<div class="m-hero"><div class="m-hero-kicker">Общий вес</div><div class="m-dim" style="margin-top:10px">Текущий показатель</div><div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><div class="m-value">'+(latest?nfmt(latest.weight,2)+" кг":"—")+'</div>'+(week===null?"":'<div class="m-change '+cls+'">'+(week>0?"↑ +":week<0?"↓ ":"")+nfmt(week,2)+' кг<br>за 7 дней</div>')+'</div>'+chart(arr,true)+'</div>'+
  '<div class="m-section-head"><h2>Последние записи</h2><button class="m-link" data-action="toggle-history">'+(showAll?"Скрыть":"Все записи →")+'</button></div>'+
- (arr.length?arr.slice(0,showAll?arr.length:7).map((e,i)=>{const older=arr[i+1],diff=older?e.weight-older.weight:null;return '<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+nfmt(e.weight,2)+' кг</span><span class="m-history-delta '+(diff===null?"neutral":diff<0?"negative":"")+'">'+(diff===null?"—":(diff>0?"+":"")+nfmt(diff,2))+'</span>'+deleteButton(e)+recordNote(e)+'</div>'}).join(""):'<div class="m-empty">Подключи Google в настройках, чтобы увидеть историю веса тела</div>')+
+ (arr.length?arr.slice(0,showAll?arr.length:7).map((e,i)=>{const older=arr[i+1],diff=older?e.weight-older.weight:null;return '<div class="m-history-row m-editable-row" data-action="edit-record" data-record-id="'+esc(e.id)+'" tabindex="0" aria-label="Редактировать запись"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+nfmt(e.weight,2)+' кг</span><span class="m-history-delta '+(diff===null?"neutral":diff<0?"negative":"")+'">'+(diff===null?"—":(diff>0?"+":"")+nfmt(diff,2))+'</span>'+deleteButton(e)+recordNote(e)+'</div>'}).join(""):'<div class="m-empty">Подключи Google в настройках, чтобы увидеть историю веса тела</div>')+
  '<button class="m-fab" data-action="add" aria-label="Добавить взвешивание">+</button>';
 }
 function groupRecords(group){return data().workouts.filter(e=>e.category===group&&e.exercise&&e.exercise!=="Без названия")}
@@ -84,11 +84,11 @@ function exerciseView(group){
  return '<div class="m-group-head"><div><h2>'+esc(group)+'</h2><div class="m-group-sub">'+names.length+' упражнений'+(last?.date?" · последнее: "+formatDate(last.date):"")+'</div></div><button class="m-add-sm" data-action="add">+ Добавить</button></div>'+(cards||'<div class="m-empty">Пока нет упражнений в этой группе</div>')+'<button class="m-fab" data-action="add" aria-label="Добавить результат">+</button>';
 }
 function otherView(){
- const notes=ordered(data().notes);return '<div class="m-group-head"><div><h2>Другое</h2><div class="m-group-sub">Заметки из исходной таблицы</div></div></div>'+(notes.length?notes.map(e=>'<div class="m-history-row"><div><b>'+formatDate(e.date)+'</b><div class="m-dim" style="margin-top:7px">'+esc(e.note)+'</div></div>'+deleteButton(e)+'</div>').join(""):'<div class="m-empty">Нет записей</div>');
+ const notes=ordered(data().notes);return '<div class="m-group-head"><div><h2>Другое</h2><div class="m-group-sub">Заметки из исходной таблицы</div></div></div>'+(notes.length?notes.map(e=>'<div class="m-history-row m-editable-row" data-action="edit-record" data-record-id="'+esc(e.id)+'" tabindex="0" aria-label="Редактировать запись"><div><b>'+formatDate(e.date)+'</b><div class="m-dim" style="margin-top:7px">'+esc(e.note)+'</div></div>'+deleteButton(e)+'</div>').join(""):'<div class="m-empty">Нет записей</div>');
 }
 function detailView(){
  const h=exerciseRecords(active,detail),arr=ordered(h),recent=arr.find(x=>dnum(x.weight)!==null)||arr[0];
- return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span>'+deleteButton(e)+recordNote(e)+'</div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
+ return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row m-editable-row" data-action="edit-record" data-record-id="'+esc(e.id)+'" tabindex="0" aria-label="Редактировать запись"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span>'+deleteButton(e)+recordNote(e)+'</div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
 }
 function settingsView(){
  let preview="";
@@ -114,8 +114,41 @@ function settingsView(){
  '<button class="m-muted-action" data-action="export">Скачать текущие записи JSON</button>'+
  '<button class="m-muted-action" data-action="import">Импортировать JSON</button></div>';
 }
+function editRecord(id){
+ if(writing||deleting||migrationBusy)return;
+ const d=data(),entry=[...d.body,...d.workouts,...d.notes].find(e=>e.id===id);
+ if(!entry)return;
+ modal={type:entry.category==="Общий вес"?"body":entry.category==="Другое"?"note":"workout",exercise:entry.exercise,edit:entry};render();
+}
+function editOverlay(entry){
+ const body=modal.type==="body",noteOnly=modal.type==="note";
+ return '<div class="m-sheet-overlay" id="m-overlay"><div class="m-sheet" role="dialog" aria-modal="true"><div class="m-sheet-top"><h2>Редактировать запись</h2><button class="m-icon-btn" data-action="close">×</button></div><form id="m-add-form"><label class="m-form-label" for="m-date">Дата</label><div style="display:flex;gap:8px;margin-bottom:8px"><button type="button" class="m-muted-action" style="flex:1" data-action="date-today">Сегодня</button><button type="button" class="m-muted-action" style="flex:1" data-action="date-yesterday">Вчера</button></div><input class="m-input" id="m-date" name="date" type="date" max="'+today()+'" value="'+esc(entry.date||"")+'">'+(body||noteOnly?"":'<label class="m-form-label" for="m-edit-exercise">Упражнение</label><input class="m-input" id="m-edit-exercise" name="exercise" required maxlength="100" value="'+esc(entry.exercise||"")+'">')+(noteOnly?"":'<label class="m-form-label" for="m-weight">'+(body?"Вес тела, кг":"Макс. вес, кг")+'</label><input class="m-input" id="m-weight" name="weight" type="number" min="'+(body?20:0)+'" max="'+(body?350:2000)+'" step="any" inputmode="decimal" '+(body?"required":"")+' value="'+esc(entry.weight??"")+'">')+(body||noteOnly?"":'<label class="m-form-label" for="m-reps">Повторения</label><input class="m-input" id="m-reps" name="reps" type="number" min="1" max="1000" step="1" inputmode="numeric" value="'+esc(entry.reps??"")+'">')+'<label class="m-form-label" for="m-note">Комментарий</label><textarea class="m-input" id="m-note" name="note" rows="3">'+esc(entry.note??"")+'</textarea><button class="m-save" type="submit" '+(writing?"disabled":"")+'>Сохранить изменения</button><div class="m-form-msg" id="m-form-msg"></div></form></div></div>';
+}
+async function saveEdit(form,fd,msg){
+ const original=modal.edit;
+ const d=data(),current=[...d.body,...d.workouts,...d.notes].find(e=>e.id===original.id);
+ if(!current)throw Error("Запись уже удалена или недоступна.");
+ if(Number(current.updatedAt||0)!==Number(original.updatedAt||0))throw Error("Запись изменилась при синхронизации. Закрой форму и открой её заново.");
+ const body=modal.type==="body",noteOnly=modal.type==="note",date=String(fd.get("date")||"");
+ const rawWeight=String(fd.get("weight")??""),rawReps=String(fd.get("reps")??"");
+ const weight=noteOnly?current.weight:rawWeight===""?null:Number(rawWeight),reps=body||noteOnly?current.reps:rawReps===""?null:Number(rawReps);
+ const exercise=body||noteOnly?current.exercise:String(fd.get("exercise")||"").trim();
+ if(date&&(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>today()))throw Error("Проверь дату.");
+ if(!noteOnly&&(!exercise||weight!==null&&(!Number.isFinite(weight)||weight<0)||body&&(weight===null||weight<20||weight>350)||reps!==null&&(!Number.isInteger(reps)||reps<1)))throw Error("Проверь значения.");
+ if(date&&(date!==current.date||exercise!==current.exercise)){
+  const matches=(body?d.body:noteOnly?[]:d.workouts).filter(e=>e.id!==current.id&&e.date===date&&e.category===current.category&&(body||e.exercise===exercise));
+  if(matches.length)throw Error("За эту дату уже есть другая запись. Выбери другую дату или отдельно исправь дубликат.");
+ }
+ const {source,row,...entry}=current;
+ await store({...entry,date,exercise,weight,reps,note:String(fd.get("note")||"").trim(),updatedAt:Math.max(Date.now(),Number(current.updatedAt||0)+1)});
+ modal=null;
+ if(!body&&!noteOnly&&detail===original.exercise)detail=exercise;
+ await window.gymRefresh?.();window.gymSheetChanged?.();
+ lastStatus="Изменения сохранены локально; синхронизация при подключении.";render();
+}
 function overlayView(){
  if(!modal||settingsMode)return "";
+ if(modal.edit)return editOverlay(modal.edit);
  const body=modal.type==="body",options=active==="Другое"?"Грудь":active;
  const names=[...new Set(groupRecords(options).map(e=>e.exercise))].sort((a,b)=>a.localeCompare(b,"ru"));
  const initial=modal.exercise||names[0]||"";
@@ -130,6 +163,11 @@ function showModal(exercise=null){modal={type:active==="Общий вес"?"body
 function store(e){return new Promise((resolve,reject)=>{const req=indexedDB.open("gym-tracker-v1");req.onsuccess=()=>{const db=req.result;try{const t=db.transaction("entries","readwrite");t.objectStore("entries").put(e);t.oncomplete=()=>{db.close();resolve()};t.onerror=()=>{db.close();reject(t.error)}}catch(err){db.close();reject(err)}};req.onerror=()=>reject(req.error)})}
 async function save(event){
  event.preventDefault();if(writing)return;const form=event.target;if(!(form instanceof HTMLFormElement))return;const fd=new FormData(form),date=String(fd.get("date")||""),weight=Number(fd.get("weight"));const msg=$("m-form-msg");
+ if(modal?.edit){
+  writing=true;form.querySelector(".m-save").disabled=true;
+  try{await saveEdit(form,fd,msg)}catch(e){msg.textContent=e.message||"Ошибка сохранения"}finally{writing=false;const btn=$("m-add-form")?.querySelector(".m-save");if(btn)btn.disabled=false;}
+  return;
+ }
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>today()||!Number.isFinite(weight)||weight<0){msg.textContent="Укажи корректную дату (не позднее сегодня) и вес";return;}
  if(!isConnected())window.gymSheetConnect?.();
 
@@ -160,12 +198,14 @@ async function save(event){
  }catch(err){const current=$("m-form-msg");if(current)current.textContent=err.message||"Ошибка сохранения";}
  finally{writing=false;const btn=$("m-add-form")?.querySelector(".m-save");if(btn)btn.disabled=false;}
 }
+root.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches(".m-editable-row")){e.preventDefault();editRecord(e.target.dataset.recordId);}});
 root.addEventListener("click",e=>{
  const filter=e.target.closest("[data-tab]");if(filter){selectTab(filter.dataset.tab);return;}
  const exercise=e.target.closest("[data-exercise]");if(exercise){detail=exercise.dataset.exercise;render();scrollTo({top:0,behavior:"instant"});return;}
  const button=e.target.closest("[data-action]");if(!button)return;
  const action=button.dataset.action;
  if(action==="date-today"||action==="date-yesterday"){const input=$("m-date");if(input)input.value=today(action==="date-yesterday"?-1:0);return;}
+ if(action==="edit-record"){editRecord(button.dataset.recordId);return;}
  if(action==="delete-record"){void deleteRecord(button.dataset.recordId);return;}
  if(action==="close"){modal=null;render();}
  if(action==="add")showModal(detail);
