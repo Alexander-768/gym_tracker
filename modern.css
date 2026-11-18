@@ -34,3 +34,5 @@ body>.shell,body>.tabs{display:none!important}
 
 /* Chart scrubbing: horizontal finger gesture selects data, vertical scrolling remains available. */
 .m-interactive-chart{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:crosshair}.m-chart-readout{min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;background:#1d2b38;border-radius:9px;color:#a8eacb;font-size:13px;font-weight:600;padding:7px 9px;margin-top:12px;font-variant-numeric:tabular-nums}.m-interactive-chart:focus-visible{outline:1px solid #78d9b0;border-radius:8px}
+
+.m-chart-periods{display:flex;justify-content:flex-end;gap:5px;flex-wrap:wrap;margin-top:15px}.m-chart-period{border:1px solid transparent;background:transparent;color:#a0adc1;padding:6px 10px;border-radius:8px;font-size:12px;font-weight:600}.m-chart-period.active{background:#263d39;color:#79e8b5;border-color:#36564a}.m-chart-period:focus-visible{outline:1px solid #78d9b0}.m-chart-readout{font-size:12px}
