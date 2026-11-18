@@ -59,6 +59,42 @@ async function deleteRecord(id){
  }catch(e){alert("Не удалось удалить запись: "+e.message)}
  finally{deleting=false;}
 }
+async function deleteExercise(){
+ if(deleting||writing||!detail)return;
+ const group=active,name=detail,records=exerciseRecords(group,name);
+ if(!records.length)return;
+ if(!confirm("Удалить упражнение «"+name+"» и всю его историю ("+records.length+" записей)?\n\nЗаписи исчезнут из приложения, но сохранятся в Google Sheets с отметкой удаления."))return;
+ deleting=true;
+ try{
+  const ids=new Set(records.map(e=>e.id));
+  await new Promise((resolve,reject)=>{
+   const req=indexedDB.open("gym-tracker-v1");
+   req.onerror=()=>reject(req.error);
+   req.onsuccess=()=>{
+    const db=req.result;
+    try{
+     const tx=db.transaction("entries","readwrite"),st=tx.objectStore("entries");
+     tx.oncomplete=()=>{db.close();resolve()};
+     tx.onabort=()=>{db.close();reject(tx.error||Error("Удаление отменено"))};
+     const q=st.openCursor();
+     q.onsuccess=()=>{
+      const c=q.result;if(!c)return;
+      const e=c.value;
+      if(ids.has(e.id)&&e.category===group&&e.exercise===name&&!Number(e.deletedAt||0)){
+       const now=Math.max(Date.now(),Number(e.updatedAt||0)+1);
+       c.update({...e,deletedAt:now,updatedAt:now});
+      }
+      c.continue();
+     };
+    }catch(e){db.close();reject(e)}
+   };
+  });
+  if(active===group&&detail===name)detail=null;
+  await window.gymRefresh?.();window.gymSheetChanged?.();
+  lastStatus="Упражнение удалено локально. Синхронизация при подключении.";render();
+ }catch(e){alert("Не удалось удалить упражнение: "+e.message)}
+ finally{deleting=false;}
+}
 function recordNote(e){const note=String(e.note??"").trim();return note?'<div class="m-history-note"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 11a8 8 0 0 1-8 8H4l2-4a8 8 0 1 1 14-4Z"/></svg><span>'+esc(note)+'</span></div>':""}
 function weightView(){
  const arr=ordered(data().body.filter(x=>Number.isFinite(x.weight))),latest=arr[0],first=arr[arr.length-1];
@@ -88,7 +124,7 @@ function otherView(){
 }
 function detailView(){
  const h=exerciseRecords(active,detail),arr=ordered(h),recent=arr.find(x=>dnum(x.weight)!==null)||arr[0];
- return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row m-editable-row" data-action="edit-record" data-record-id="'+esc(e.id)+'" tabindex="0" aria-label="Редактировать запись"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span>'+deleteButton(e)+recordNote(e)+'</div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
+ return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-heading"><div class="m-detail-title">'+esc(detail)+'</div><button type="button" class="m-delete-exercise" data-action="delete-exercise" title="Удалить упражнение и всю историю" aria-label="Удалить упражнение"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg><span>Удалить</span></button></div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row m-editable-row" data-action="edit-record" data-record-id="'+esc(e.id)+'" tabindex="0" aria-label="Редактировать запись"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span>'+deleteButton(e)+recordNote(e)+'</div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
 }
 function settingsView(){
  return '<div class="m-group-head"><h2>Настройки</h2></div><div class="m-panel m-settings"><h3>Google Sheets</h3><div class="m-dim">Единый журнал: gym_tracker_app</div><button class="m-add-sm" data-action="connect">Подключить Google</button><button class="m-muted-action" data-action="sync">↻ Синхронизировать</button><div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div><button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div><div class="m-panel m-settings"><h3>Резервная копия</h3><div class="m-dim">Сначала синхронизируй данные, затем скачай независимую копию JSON. Автоматические копии на Google Drive настраиваются отдельно.</div><button class="m-muted-action" data-action="export">Скачать текущие записи JSON</button></div>';
@@ -185,6 +221,7 @@ root.addEventListener("click",e=>{
  const action=button.dataset.action;
  if(action==="date-today"||action==="date-yesterday"){const input=$("m-date");if(input)input.value=today(action==="date-yesterday"?-1:0);return;}
  if(action==="edit-record"){editRecord(button.dataset.recordId);return;}
+ if(action==="delete-exercise"){void deleteExercise();return;}
  if(action==="delete-record"){void deleteRecord(button.dataset.recordId);return;}
  if(action==="close"){modal=null;render();}
  if(action==="add")showModal(detail);
