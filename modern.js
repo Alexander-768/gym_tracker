@@ -6,7 +6,7 @@ const TABS=["Общий вес","Грудь","Ноги","Руки","Спина �
 const CACHE="gym_ui_active_tab_v2";
 const icons={"Грудь":"◈","Ноги":"♧","Руки":"◉","Спина и плечи":"✦","Другое":"☷"};
 let active=TABS.includes(localStorage.getItem(CACHE))?localStorage.getItem(CACHE):"Общий вес";
-let detail=null,showAll=false,modal=null,lastStatus="",writing=false,settingsMode=false,migrationPreview=null,migrationBusy=false,migrationNotice="";
+let detail=null,showAll=false,modal=null,lastStatus="",writing=false,settingsMode=false;
 let root=$("modernApp");
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nfmt=(v,d=1)=>Number(v).toLocaleString("ru-RU",{maximumFractionDigits:d});
@@ -42,7 +42,7 @@ function spark(records){
 function deleteButton(e){return '<button type="button" class="m-delete-record" data-action="delete-record" data-record-id="'+esc(e.id)+'" aria-label="Удалить запись" title="Удалить запись"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg></button>'}
 let deleting=false;
 async function deleteRecord(id){
- if(deleting||writing||migrationBusy)return;
+ if(deleting||writing)return;
  const d=data(),record=[...d.body,...d.workouts,...d.notes].find(e=>e.id===id);
  if(!record)return;
  const name=record.category==="Общий вес"?"Вес тела":record.exercise;
@@ -91,31 +91,10 @@ function detailView(){
  return '<button class="m-detail-back" data-action="back">‹ Назад к упражнениям</button><div class="m-detail-title">'+esc(detail)+'</div><div class="m-panel"><div class="m-dim">Последний результат</div><div class="m-value">'+(recent&&dnum(recent.weight)!==null?nfmt(recent.weight,2)+" кг":"—")+'</div><div class="m-dim">'+(recent&&dnum(recent.reps)!==null?nfmt(recent.reps,0)+" повторений":"Повторения не указаны")+'</div>'+chart(h,true,"max")+'</div><div class="m-section-head"><h2>История</h2><button class="m-link" data-action="add">+ Новый результат</button></div>'+arr.map(e=>'<div class="m-history-row m-editable-row" data-action="edit-record" data-record-id="'+esc(e.id)+'" tabindex="0" aria-label="Редактировать запись"><span class="m-date-icon">▣</span><span class="m-history-date">'+formatDate(e.date)+'</span><span class="m-history-weight">'+(dnum(e.weight)===null?"—":nfmt(e.weight,2)+" кг")+'</span><span class="m-dim">'+(dnum(e.reps)===null?"—":nfmt(e.reps,0)+" повт.")+'</span>'+deleteButton(e)+recordNote(e)+'</div>').join("")+'<button class="m-fab" data-action="add" aria-label="Записать новый результат">+</button>';
 }
 function settingsView(){
- let preview="";
- if(migrationPreview){
-  preview='<div class="m-panel"><h3 style="margin:0 0 10px">Что будет перенесено</h3><div class="m-dim">Исторических записей: <b>'+migrationPreview.toImport+'</b></div><div class="m-dim">Тестовых строк к удалению из gym_tracker_app: <b>'+migrationPreview.toRemoveCloud+'</b></div><div class="m-dim">Локальных записей к замене: <b>'+migrationPreview.toRemoveLocal+'</b></div>'+
-    Object.entries(migrationPreview.perTab).map(([name,count])=>'<div class="m-detail-stats"><span>'+esc(name)+'</span><b>'+count+'</b></div>').join("")+
-    '<div class="m-dim" style="margin-top:10px">Без даты: '+migrationPreview.stats.missingDates+'. Без повторений: '+migrationPreview.stats.missingReps+'. Пропущено зеркальных дублей: '+migrationPreview.stats.mirrored+'.</div>'+
-    '<button class="m-save" data-action="commit-migration" type="button" '+(migrationBusy?"disabled":"")+'>Подтвердить перенос и очистку тестовых логов</button></div>';
- }
- return '<div class="m-group-head"><h2>Настройки</h2></div>'+
- '<div class="m-panel m-settings"><h3 style="margin:0">Google Sheets</h3><div class="m-dim">Единый журнал: <b>gym_tracker_app</b>. Старые листы остаются архивом и больше не изменяются приложением.</div>'+
- '<div class="m-dim">'+(isConnected()?"● Google подключён":"● Google не подключён")+'</div>'+
- '<button class="m-add-sm" data-action="connect">Подключить Google</button>'+
- '<button class="m-muted-action" data-action="sync">↻ Синхронизировать</button>'+
- '<div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div>'+
- '<button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div>'+
- '<div class="m-panel m-settings"><h3 style="margin:0">Однократный перенос истории</h3>'+
- '<div class="m-dim">Перенесём старые данные в gym_tracker_app, удалим все прежние тестовые логи приложения и заменим локальный кеш. Старые вкладки не трогаем. Сначала покажем количество строк.</div>'+
- '<button class="m-muted-action" data-action="prepare-migration" '+(migrationBusy?"disabled":"")+'>Проверить, что будет перенесено и удалено</button>'+
- '<div class="m-dim" id="m-migration-status">'+esc(migrationNotice)+'</div></div>'+preview+
- '<div class="m-panel m-settings"><h3 style="margin:0">Резервная копия</h3><div class="m-dim">Перед переносом приложение сохранит копию текущих логов и локальных записей в браузере.</div>'+
- '<button class="m-muted-action" data-action="migration-backup">Скачать копию до миграции (если есть)</button>'+
- '<button class="m-muted-action" data-action="export">Скачать текущие записи JSON</button>'+
- '<button class="m-muted-action" data-action="import">Импортировать JSON</button></div>';
+ return '<div class="m-group-head"><h2>Настройки</h2></div><div class="m-panel m-settings"><h3>Google Sheets</h3><div class="m-dim">Единый журнал: gym_tracker_app</div><button class="m-add-sm" data-action="connect">Подключить Google</button><button class="m-muted-action" data-action="sync">↻ Синхронизировать</button><div class="m-dim" id="modernStatus">'+esc(lastStatus)+'</div><button class="m-muted-action" data-action="open-sheet">Открыть Google Sheets ↗</button></div><div class="m-panel m-settings"><h3>Резервная копия</h3><div class="m-dim">Сначала синхронизируй данные, затем скачай независимую копию JSON. Автоматические копии на Google Drive настраиваются отдельно.</div><button class="m-muted-action" data-action="export">Скачать текущие записи JSON</button></div>';
 }
 function editRecord(id){
- if(writing||deleting||migrationBusy)return;
+ if(writing||deleting)return;
  const d=data(),entry=[...d.body,...d.workouts,...d.notes].find(e=>e.id===id);
  if(!entry)return;
  modal={type:entry.category==="Общий вес"?"body":entry.category==="Другое"?"note":"workout",exercise:entry.exercise,edit:entry};render();
@@ -215,23 +194,7 @@ root.addEventListener("click",e=>{
  if(action==="connect")$("connectSheets").click();
  if(action==="sync")$("syncSheets").click();
  if(action==="export")$("export").click();
- if(action==="import")$("importBtn").click();
- if(action==="prepare-migration"){
-  if(migrationBusy)return;
-  migrationBusy=true;migrationNotice="Читаю старые листы и сравниваю с gym_tracker_app...";render();
-  window.gymMigration?.prepare().then(p=>{migrationPreview=p;migrationNotice="Проверка завершена. Посмотри цифры ниже.";}).catch(e=>{migrationPreview=null;migrationNotice="Ошибка: "+e.message;}).finally(()=>{migrationBusy=false;render()});
- }
- if(action==="commit-migration"){
-  if(migrationBusy||!migrationPreview)return;
-  const p=migrationPreview;
-  const text="Удалить "+p.toRemoveCloud+" текущих записей из gym_tracker_app, заменить "+p.toRemoveLocal+" локальных записей и импортировать "+p.toImport+" исторических?\n\nСтарые вкладки останутся без изменений. Это разовая операция.";
-  if(!confirm(text))return;
-  migrationBusy=true;migrationNotice="Выполняется миграция... Не закрывай приложение.";render();
-  window.gymMigration?.commit().then(result=>{migrationPreview=null;migrationNotice="✓ Перенос завершён: "+result.imported+" исторических записей. Тестовые логи удалены.";}).catch(e=>{migrationNotice="Ошибка переноса: "+e.message;}).finally(()=>{migrationBusy=false;render()});
- }
- if(action==="migration-backup"){
-  try{window.gymMigration?.downloadBackup()}catch(e){migrationNotice=e.message;render();}
- }
+
  if(action==="open-sheet")window.open("https://docs.google.com/spreadsheets/d/1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs/edit","_blank","noopener");
 });
 root.addEventListener("change",e=>{if(e.target.id==="m-exercise"){$("m-newexercise").style.display=e.target.value==="__new"?"":"none";}});
