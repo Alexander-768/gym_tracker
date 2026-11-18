@@ -28,3 +28,6 @@ body>.shell,body>.tabs{display:none!important}
 
 /* Exercise-level deletion: deliberately quieter than the primary add action. */
 .m-detail-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.m-detail-heading .m-detail-title{min-width:0;overflow-wrap:anywhere}.m-delete-exercise{display:inline-flex;align-items:center;gap:5px;flex-shrink:0;padding:8px 4px;background:transparent;color:#a88b94;border:0;font-size:12px}.m-delete-exercise:hover,.m-delete-exercise:focus-visible{color:#ff98a5}.m-delete-exercise:focus-visible{outline:1px solid #ff98a5;border-radius:6px}
+
+/* Fixed exercise name when recording a result from its detail screen. */
+.m-fixed-exercise{display:flex;align-items:center;justify-content:space-between;gap:12px;overflow-wrap:anywhere;background:#151d29;color:#c5d1de}.m-fixed-exercise .m-dim{flex-shrink:0}
