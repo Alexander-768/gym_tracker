@@ -8,6 +8,7 @@ const icons={"Грудь":"◈","Ноги":"♧","Руки":"◉","Спина и
 let active=TABS.includes(localStorage.getItem(CACHE))?localStorage.getItem(CACHE):"Общий вес";
 let detail=null,showAll=false,modal=null,lastStatus="",writing=false,settingsMode=false;
 let root=$("modernApp");
+let chartRange="all";
 const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const nfmt=(v,d=1)=>Number(v).toLocaleString("ru-RU",{maximumFractionDigits:d});
 const today=(offset=0)=>{const d=new Date();d.setDate(d.getDate()+offset);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-")};
@@ -17,36 +18,59 @@ const data=()=>window.gymHistoryData?.()||{workouts:[],body:[],notes:[]};
 const isConnected=()=>Boolean(window.gymLegacyApi?.ready?.());
 function ordered(records){return [...records].sort((a,b)=>(b.date||"").localeCompare(a.date||"")||Number(b.updatedAt||0)-Number(a.updatedAt||0)||Number(b.row||0)-Number(a.row||0))}
 function points(records){return [...records].filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x.date||"")&&dnum(x.weight)!==null&&Number(x.weight)>=0).sort((a,b)=>a.date.localeCompare(b.date))}
+function monthsBefore(date,months){
+ const d=new Date(date+"T00:00:00Z"),day=d.getUTCDate();d.setUTCDate(1);d.setUTCMonth(d.getUTCMonth()-months);
+ const last=new Date(Date.UTC(d.getUTCFullYear(),d.getUTCMonth()+1,0)).getUTCDate();d.setUTCDate(Math.min(day,last));return d.toISOString().slice(0,10);
+}
+function chartPeriods(vals){
+ const end=vals[vals.length-1].date,first=vals[0].date;
+ return [{id:"1",label:"1М",months:1},{id:"3",label:"3М",months:3},{id:"6",label:"6М",months:6},{id:"12",label:"1Г",months:12}].map(p=>({...p,cutoff:monthsBefore(end,p.months)})).filter(p=>first<=p.cutoff);
+}
 function chart(records,large=false,mode="last"){
  const ps=points(records);
  if(!ps.length)return '<div class="m-empty">Пока недостаточно данных для графика</div>';
  const daily=new Map();for(const e of ps)daily.set(e.date,mode==="max"?Math.max(Number(e.weight),daily.get(e.date)??-Infinity):Number(e.weight));
- const vals=[...daily].map(([date,weight])=>({date,weight}));
+ const all=[...daily].map(([date,weight])=>({date,weight})),periods=chartPeriods(all);
+ const selected=periods.find(p=>p.id===chartRange);
+ const vals=selected?all.filter(v=>v.date>=selected.cutoff):all;
+ const controls=periods.length?'<div class="m-chart-periods" aria-label="Период графика">'+[...periods,{id:"all",label:"Всё"}].map(p=>'<button type="button" class="m-chart-period '+((selected?.id||"all")===p.id?"active":"")+'" data-action="chart-range" data-range="'+p.id+'" aria-pressed="'+((selected?.id||"all")===p.id)+'">'+p.label+'</button>').join("")+'</div>':"";
  const min=Math.min(...vals.map(v=>v.weight)),max=Math.max(...vals.map(v=>v.weight));
  const span=Math.max(max-min,0.8),lower=Math.max(0,min-span*.28),upper=max+span*.28;
  const left=36,right=321,top=15,bottom=158,w=340,h=180;
- const start=Date.parse(vals[0].date),end=Date.parse(vals[vals.length-1].date);
+ const start=Date.parse(selected?.cutoff||vals[0].date),end=Date.parse(vals[vals.length-1].date);
  const X=i=>start===end?(left+right)/2:left+(right-left)*(Date.parse(vals[i].date)-start)/(end-start);
  const Y=v=>bottom-(v-lower)/(upper-lower)*(bottom-top);
  const path=vals.map((v,i)=>(i?"L":"M")+X(i).toFixed(1)+" "+Y(v.weight).toFixed(1)).join(" ");
  const area=path+" L"+X(vals.length-1).toFixed(1)+" "+bottom+" L"+X(0).toFixed(1)+" "+bottom+" Z";
  const ticks=[0,1,2,3,4].map(i=>{const y=top+(bottom-top)*i/4,val=upper-(upper-lower)*i/4;return '<line x1="'+left+'" x2="'+right+'" y1="'+y+'" y2="'+y+'" class="m-grid"/>'+(large?'<text class="m-chart-label" x="2" y="'+(y+4)+'">'+nfmt(val,1)+'</text>':"")}).join("");
- return '<div class="m-chart-wrap"><div class="m-chart-readout" aria-live="polite">Коснись графика, чтобы увидеть дату и вес</div><svg viewBox="0 0 '+w+' '+h+'" class="m-chart m-interactive-chart" tabindex="0" style="height:'+(large?218:155)+'px" role="img" aria-label="Динамика показателя по датам"><defs><linearGradient id="mshade" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#61ecaa" stop-opacity=".27"/><stop offset="100%" stop-color="#61ecaa" stop-opacity=".015"/></linearGradient></defs>'+ticks+'<path d="'+area+'" fill="url(#mshade)"/><path class="m-line" d="'+path+'"/>'+vals.map((v,i)=>'<circle data-chart-point="'+i+'" data-date="'+esc(v.date)+'" data-weight="'+v.weight+'" cx="'+X(i)+'" cy="'+Y(v.weight)+'" r="'+(i===vals.length-1?4:2.4)+'" fill="#6cf0b4" stroke="#172b28" stroke-width="1.5"/>').join("")+'<g class="m-chart-cursor" visibility="hidden" pointer-events="none"><line data-cross="x" y1="'+top+'" y2="'+bottom+'" stroke="#9caec0" stroke-dasharray="4 4"/><line data-cross="y" x1="'+left+'" x2="'+right+'" stroke="#9caec0" stroke-dasharray="4 4"/><circle data-cross="dot" r="5" fill="#6cf0b4" stroke="#fff" stroke-width="1.5"/></g></svg><div class="m-chart-dates"><span>'+formatDate(vals[0].date)+'</span><span>'+formatDate(vals[vals.length-1].date)+'</span></div></div>';
+ return '<div class="m-chart-wrap">'+controls+'<div class="m-chart-readout" aria-live="polite">Коснись графика, чтобы увидеть дату и вес</div><svg viewBox="0 0 '+w+' '+h+'" class="m-chart m-interactive-chart" tabindex="0" data-start="'+start+'" data-end="'+end+'" data-left="'+left+'" data-right="'+right+'" style="height:'+(large?218:155)+'px" role="img" aria-label="Динамика показателя по датам"><defs><linearGradient id="mshade" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#61ecaa" stop-opacity=".27"/><stop offset="100%" stop-color="#61ecaa" stop-opacity=".015"/></linearGradient></defs>'+ticks+'<path d="'+area+'" fill="url(#mshade)"/><path class="m-line" d="'+path+'"/>'+vals.map((v,i)=>'<circle data-chart-point="'+i+'" data-date="'+esc(v.date)+'" data-weight="'+v.weight+'" cx="'+X(i)+'" cy="'+Y(v.weight)+'" r="'+(i===vals.length-1?4:2.4)+'" fill="#6cf0b4" stroke="#172b28" stroke-width="1.5"/>').join("")+'<g class="m-chart-cursor" visibility="hidden" pointer-events="none"><line data-cross="x" y2="'+bottom+'" stroke="#9caec0" stroke-dasharray="4 4"/><line data-cross="y" x1="'+left+'" stroke="#9caec0" stroke-dasharray="4 4"/><circle data-cross="dot" r="5" fill="#6cf0b4" stroke="#fff" stroke-width="1.5"/></g></svg><div class="m-chart-dates"><span>'+formatDate(selected?.cutoff||vals[0].date)+'</span><span>'+formatDate(vals[vals.length-1].date)+'</span></div></div>';
+}
+function drawChartCursor(svg,x,y,date,weight,estimated){
+ const g=svg.querySelector(".m-chart-cursor"),vertical=g.querySelector('[data-cross="x"]'),horizontal=g.querySelector('[data-cross="y"]');
+ vertical.setAttribute("x1",x);vertical.setAttribute("x2",x);vertical.setAttribute("y1",y);
+ horizontal.setAttribute("y1",y);horizontal.setAttribute("y2",y);horizontal.setAttribute("x2",x);
+ const dot=g.querySelector('[data-cross="dot"]');dot.setAttribute("cx",x);dot.setAttribute("cy",y);g.setAttribute("visibility","visible");
+ const readout=svg.closest(".m-chart-wrap").querySelector(".m-chart-readout");
+ readout.textContent=formatDate(date)+" · "+(estimated?"≈ ":"")+nfmt(weight,2)+" кг"+(estimated?" (между записями)":"");
 }
 function selectChartPoint(svg,index){
  const ps=[...svg.querySelectorAll("[data-chart-point]")],p=ps[Math.max(0,Math.min(ps.length-1,index))];if(!p)return;
- const x=p.getAttribute("cx"),y=p.getAttribute("cy"),g=svg.querySelector(".m-chart-cursor");
  svg.dataset.selected=p.dataset.chartPoint;
- for(const a of ["x1","x2"])g.querySelector('[data-cross="x"]').setAttribute(a,x);
- for(const a of ["y1","y2"])g.querySelector('[data-cross="y"]').setAttribute(a,y);
- const dot=g.querySelector('[data-cross="dot"]');dot.setAttribute("cx",x);dot.setAttribute("cy",y);g.setAttribute("visibility","visible");
- svg.closest(".m-chart-wrap").querySelector(".m-chart-readout").textContent=formatDate(p.dataset.date)+" · "+nfmt(Number(p.dataset.weight),2)+" кг";
+ drawChartCursor(svg,Number(p.getAttribute("cx")),Number(p.getAttribute("cy")),p.dataset.date,Number(p.dataset.weight),false);
 }
 function chartPointer(svg,event){
  const matrix=svg.getScreenCTM();if(!matrix)return;
- const p=svg.createSVGPoint();p.x=event.clientX;p.y=event.clientY;const x=p.matrixTransform(matrix.inverse()).x;
- let best=0,dist=Infinity;svg.querySelectorAll("[data-chart-point]").forEach((el,i)=>{const d=Math.abs(Number(el.getAttribute("cx"))-x);if(d<dist){dist=d;best=i}});
- selectChartPoint(svg,best);
+ const p=svg.createSVGPoint();p.x=event.clientX;p.y=event.clientY;const pos=p.matrixTransform(matrix.inverse()).x;
+ const ps=[...svg.querySelectorAll("[data-chart-point]")].map(el=>({x:Number(el.getAttribute("cx")),y:Number(el.getAttribute("cy")),date:el.dataset.date,weight:Number(el.dataset.weight)}));
+ if(!ps.length)return;
+ const x=Math.max(ps[0].x,Math.min(ps[ps.length-1].x,pos));
+ let j=ps.findIndex(p=>p.x>=x);if(j<0)j=ps.length-1;
+ if(j===0||Math.abs(ps[j].x-x)<0.000001){selectChartPoint(svg,j);return;}
+ const a=ps[j-1],b=ps[j],t=(x-a.x)/(b.x-a.x);
+ const date=new Date(Date.parse(a.date)+t*(Date.parse(b.date)-Date.parse(a.date)));
+ date.setTime(Math.round(date.getTime()/86400000)*86400000);
+ svg.dataset.selected=String(t<.5?j-1:j);
+ drawChartCursor(svg,x,a.y+(b.y-a.y)*t,date.toISOString().slice(0,10),a.weight+(b.weight-a.weight)*t,true);
 }
 root.addEventListener("pointerdown",e=>{const svg=e.target.closest(".m-interactive-chart");if(!svg)return;chartPointer(svg,e);if(e.pointerType!=="mouse")try{svg.setPointerCapture(e.pointerId)}catch{}});
 root.addEventListener("pointermove",e=>{const svg=e.target.closest(".m-interactive-chart");if(svg&&(e.pointerType==="mouse"||svg.hasPointerCapture(e.pointerId)))chartPointer(svg,e)});
@@ -191,7 +215,7 @@ function render(){
  root.innerHTML='<div class="m-wrap"><header class="m-header"><div class="m-brand"><span class="m-brand-icon">♢</span><div><h1>Gym Tracker</h1><p class="m-sub">Личный трекер тренировок</p></div></div><div class="m-top-actions"><button class="m-icon-btn" data-action="settings" aria-label="Настройки">⚙</button></div></header><div id="m-sync-detail" role="status" style="font-size:12px;color:#9eabc0;margin:8px 0 2px">'+esc(window.gymSyncState?.message||lastStatus)+'</div><div class="m-sync '+(isConnected()?"":"off")+'"><span class="m-dot"></span>'+(isConnected()?"Синхронизировано с Google Sheets":"Локальные данные · Google при подключении")+'</div><nav class="m-filters" aria-label="Разделы">'+TABS.map(t=>'<button class="m-chip '+(t===active?"active":"")+'" data-tab="'+esc(t)+'">'+esc(t)+'</button>').join("")+'</nav>'+(settingsMode?settingsView():active==="Общий вес"?weightView():active==="Другое"?otherView():detail?detailView():exerciseView(active))+'</div>'+overlayView();
  const sel=root.querySelector(".m-chip.active");if(sel&&root.dataset.lastTab!==active){root.dataset.lastTab=active;sel.scrollIntoView({block:"nearest",inline:"center"});}
 }
-function selectTab(t){if(!TABS.includes(t))return;active=t;detail=null;showAll=false;modal=null;settingsMode=false;localStorage.setItem(CACHE,t);render();scrollTo({top:0,behavior:"instant"})}
+function selectTab(t){if(!TABS.includes(t))return;active=t;detail=null;chartRange="all";showAll=false;modal=null;settingsMode=false;localStorage.setItem(CACHE,t);render();scrollTo({top:0,behavior:"instant"})}
 function showModal(exercise=null){modal={type:active==="Общий вес"?"body":"workout",exercise};render();setTimeout(()=>{const input=$("m-newexercise")||$("m-weight");input?.focus()},40)}
 function store(e){return new Promise((resolve,reject)=>{const req=indexedDB.open("gym-tracker-v1");req.onsuccess=()=>{const db=req.result;try{const t=db.transaction("entries","readwrite");t.objectStore("entries").put(e);t.oncomplete=()=>{db.close();resolve()};t.onerror=()=>{db.close();reject(t.error)}}catch(err){db.close();reject(err)}};req.onerror=()=>reject(req.error)})}
 async function save(event){
@@ -235,7 +259,7 @@ async function save(event){
 root.addEventListener("keydown",e=>{if((e.key==="Enter"||e.key===" ")&&e.target.matches(".m-editable-row")){e.preventDefault();editRecord(e.target.dataset.recordId);}});
 root.addEventListener("click",e=>{
  const filter=e.target.closest("[data-tab]");if(filter){selectTab(filter.dataset.tab);return;}
- const exercise=e.target.closest("[data-exercise]");if(exercise){detail=exercise.dataset.exercise;render();scrollTo({top:0,behavior:"instant"});return;}
+ const exercise=e.target.closest("[data-exercise]");if(exercise){detail=exercise.dataset.exercise;chartRange="all";render();scrollTo({top:0,behavior:"instant"});return;}
  const button=e.target.closest("[data-action]");if(!button)return;
  const action=button.dataset.action;
  if(action==="date-today"||action==="date-yesterday"){const input=$("m-date");if(input)input.value=today(action==="date-yesterday"?-1:0);return;}
@@ -244,7 +268,8 @@ root.addEventListener("click",e=>{
  if(action==="delete-record"){void deleteRecord(button.dataset.recordId);return;}
  if(action==="close"){modal=null;render();}
  if(action==="add")showModal(detail);
- if(action==="back"){detail=null;render();}
+ if(action==="back"){detail=null;chartRange="all";render();}
+ if(action==="chart-range"){chartRange=button.dataset.range;render();return;}
  if(action==="toggle-history"){showAll=!showAll;render();}
  if(action==="settings"){settingsMode=!settingsMode;modal=null;render();}
  if(action==="connect")$("connectSheets").click();
