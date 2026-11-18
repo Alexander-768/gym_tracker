@@ -25,13 +25,32 @@ function chart(records,large=false,mode="last"){
  const min=Math.min(...vals.map(v=>v.weight)),max=Math.max(...vals.map(v=>v.weight));
  const span=Math.max(max-min,0.8),lower=Math.max(0,min-span*.28),upper=max+span*.28;
  const left=36,right=321,top=15,bottom=158,w=340,h=180;
- const X=i=>vals.length===1?(left+right)/2:left+(right-left)*i/(vals.length-1);
+ const start=Date.parse(vals[0].date),end=Date.parse(vals[vals.length-1].date);
+ const X=i=>start===end?(left+right)/2:left+(right-left)*(Date.parse(vals[i].date)-start)/(end-start);
  const Y=v=>bottom-(v-lower)/(upper-lower)*(bottom-top);
  const path=vals.map((v,i)=>(i?"L":"M")+X(i).toFixed(1)+" "+Y(v.weight).toFixed(1)).join(" ");
  const area=path+" L"+X(vals.length-1).toFixed(1)+" "+bottom+" L"+X(0).toFixed(1)+" "+bottom+" Z";
  const ticks=[0,1,2,3,4].map(i=>{const y=top+(bottom-top)*i/4,val=upper-(upper-lower)*i/4;return '<line x1="'+left+'" x2="'+right+'" y1="'+y+'" y2="'+y+'" class="m-grid"/>'+(large?'<text class="m-chart-label" x="2" y="'+(y+4)+'">'+nfmt(val,1)+'</text>':"")}).join("");
- return '<svg viewBox="0 0 '+w+' '+h+'" class="m-chart" style="height:'+(large?218:155)+'px" role="img" aria-label="Динамика показателя по датам"><defs><linearGradient id="mshade" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#61ecaa" stop-opacity=".27"/><stop offset="100%" stop-color="#61ecaa" stop-opacity=".015"/></linearGradient></defs>'+ticks+'<path d="'+area+'" fill="url(#mshade)"/><path class="m-line" d="'+path+'"/>'+vals.map((v,i)=>'<circle cx="'+X(i)+'" cy="'+Y(v.weight)+'" r="'+(i===vals.length-1?4:2.4)+'" fill="#6cf0b4" stroke="#172b28" stroke-width="1.5"/>').join("")+'</svg><div class="m-chart-dates"><span>'+formatDate(vals[0].date)+'</span><span>'+formatDate(vals[vals.length-1].date)+'</span></div>';
+ return '<div class="m-chart-wrap"><div class="m-chart-readout" aria-live="polite">Коснись графика, чтобы увидеть дату и вес</div><svg viewBox="0 0 '+w+' '+h+'" class="m-chart m-interactive-chart" tabindex="0" style="height:'+(large?218:155)+'px" role="img" aria-label="Динамика показателя по датам"><defs><linearGradient id="mshade" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stop-color="#61ecaa" stop-opacity=".27"/><stop offset="100%" stop-color="#61ecaa" stop-opacity=".015"/></linearGradient></defs>'+ticks+'<path d="'+area+'" fill="url(#mshade)"/><path class="m-line" d="'+path+'"/>'+vals.map((v,i)=>'<circle data-chart-point="'+i+'" data-date="'+esc(v.date)+'" data-weight="'+v.weight+'" cx="'+X(i)+'" cy="'+Y(v.weight)+'" r="'+(i===vals.length-1?4:2.4)+'" fill="#6cf0b4" stroke="#172b28" stroke-width="1.5"/>').join("")+'<g class="m-chart-cursor" visibility="hidden" pointer-events="none"><line data-cross="x" y1="'+top+'" y2="'+bottom+'" stroke="#9caec0" stroke-dasharray="4 4"/><line data-cross="y" x1="'+left+'" x2="'+right+'" stroke="#9caec0" stroke-dasharray="4 4"/><circle data-cross="dot" r="5" fill="#6cf0b4" stroke="#fff" stroke-width="1.5"/></g></svg><div class="m-chart-dates"><span>'+formatDate(vals[0].date)+'</span><span>'+formatDate(vals[vals.length-1].date)+'</span></div></div>';
 }
+function selectChartPoint(svg,index){
+ const ps=[...svg.querySelectorAll("[data-chart-point]")],p=ps[Math.max(0,Math.min(ps.length-1,index))];if(!p)return;
+ const x=p.getAttribute("cx"),y=p.getAttribute("cy"),g=svg.querySelector(".m-chart-cursor");
+ svg.dataset.selected=p.dataset.chartPoint;
+ for(const a of ["x1","x2"])g.querySelector('[data-cross="x"]').setAttribute(a,x);
+ for(const a of ["y1","y2"])g.querySelector('[data-cross="y"]').setAttribute(a,y);
+ const dot=g.querySelector('[data-cross="dot"]');dot.setAttribute("cx",x);dot.setAttribute("cy",y);g.setAttribute("visibility","visible");
+ svg.closest(".m-chart-wrap").querySelector(".m-chart-readout").textContent=formatDate(p.dataset.date)+" · "+nfmt(Number(p.dataset.weight),2)+" кг";
+}
+function chartPointer(svg,event){
+ const matrix=svg.getScreenCTM();if(!matrix)return;
+ const p=svg.createSVGPoint();p.x=event.clientX;p.y=event.clientY;const x=p.matrixTransform(matrix.inverse()).x;
+ let best=0,dist=Infinity;svg.querySelectorAll("[data-chart-point]").forEach((el,i)=>{const d=Math.abs(Number(el.getAttribute("cx"))-x);if(d<dist){dist=d;best=i}});
+ selectChartPoint(svg,best);
+}
+root.addEventListener("pointerdown",e=>{const svg=e.target.closest(".m-interactive-chart");if(!svg)return;chartPointer(svg,e);if(e.pointerType!=="mouse")try{svg.setPointerCapture(e.pointerId)}catch{}});
+root.addEventListener("pointermove",e=>{const svg=e.target.closest(".m-interactive-chart");if(svg&&(e.pointerType==="mouse"||svg.hasPointerCapture(e.pointerId)))chartPointer(svg,e)});
+root.addEventListener("keydown",e=>{const svg=e.target.closest(".m-interactive-chart");if(!svg||!["ArrowLeft","ArrowRight","Home","End"].includes(e.key))return;e.preventDefault();const n=svg.querySelectorAll("[data-chart-point]").length,i=Number(svg.dataset.selected??0);selectChartPoint(svg,e.key==="Home"?0:e.key==="End"?n-1:i+(e.key==="ArrowLeft"?-1:1));});
 function spark(records){
  const p=points(records),last=[...new Map(p.map(e=>[e.date,Number(e.weight)]))].slice(-12);
  if(!last.length)return '<span class="m-dim">Нет графика</span>';
@@ -165,7 +184,7 @@ function overlayView(){
  if(!modal||settingsMode)return "";
  if(modal.edit)return editOverlay(modal.edit);
  const body=modal.type==="body",fixed=modal.exercise;
- const exerciseField=fixed?'<label class="m-form-label">Упражнение</label><div class="m-input m-fixed-exercise">'+esc(fixed)+' <span class="m-dim" aria-label="Не изменяется">🔒</span></div>':'<label class="m-form-label" for="m-newexercise">Название упражнения</label><input class="m-input" id="m-newexercise" name="newexercise" placeholder="Введите название" maxlength="100" required>';
+ const exerciseField=fixed?'<label class="m-form-label">Упражнение</label><div class="m-input m-fixed-exercise">'+esc(fixed)+'</div>':'<label class="m-form-label" for="m-newexercise">Название упражнения</label><input class="m-input" id="m-newexercise" name="newexercise" placeholder="Введите название" maxlength="100" required>';
  return '<div class="m-sheet-overlay" id="m-overlay"><div class="m-sheet" role="dialog" aria-modal="true"><div class="m-sheet-top"><h2>'+(body?"Новое взвешивание":fixed?"Записать максимум":"Новое упражнение")+'</h2><button class="m-icon-btn" data-action="close">×</button></div><form id="m-add-form"><label class="m-form-label" for="m-date">'+(body?"Дата взвешивания":"Дата тренировки")+'</label><div style="display:flex;gap:8px;margin-bottom:8px"><button type="button" class="m-muted-action" style="flex:1" data-action="date-today">Сегодня</button><button type="button" class="m-muted-action" style="flex:1" data-action="date-yesterday">Вчера</button></div><input class="m-input" id="m-date" name="date" type="date" required max="'+today()+'" value="'+today()+'"><div class="m-dim" style="font-size:12px;margin-top:6px">Нажми на дату, чтобы выбрать любой прошлый день.</div>'+(body?'<label class="m-form-label" for="m-weight">Вес тела, кг</label><input class="m-input" id="m-weight" name="weight" type="number" min="20" max="350" step="0.1" inputmode="decimal" required placeholder="63,2"><label class="m-form-label" for="m-note">Заметка (необязательно)</label><input class="m-input" id="m-note" name="note" placeholder="Например, после завтрака">': exerciseField+'<div class="m-form-cols"><div><label class="m-form-label" for="m-weight">Макс. вес, кг</label><input class="m-input" id="m-weight" name="weight" type="number" min="0" max="2000" step="0.25" inputmode="decimal" required placeholder="70"></div><div><label class="m-form-label" for="m-reps">Повторения</label><input class="m-input" id="m-reps" name="reps" type="number" min="1" max="1000" step="1" inputmode="numeric" required placeholder="8"></div></div><label class="m-form-label" for="m-note">Комментарий (необязательно)</label><textarea class="m-input" id="m-note" name="note" rows="2" placeholder="Например, другой тренажёр или техника"></textarea><p class="m-dim" style="margin-top:14px">Один лучший результат за тренировку. Подходы записывать не нужно.</p>')+'<button class="m-save" type="submit" '+(writing?"disabled":"")+'>Сохранить</button><div class="m-form-msg" id="m-form-msg"></div></form></div></div>';
 }
 function render(){
