@@ -31,3 +31,6 @@ body>.shell,body>.tabs{display:none!important}
 
 /* Fixed exercise name when recording a result from its detail screen. */
 .m-fixed-exercise{display:flex;align-items:center;justify-content:space-between;gap:12px;overflow-wrap:anywhere;background:#151d29;color:#c5d1de}.m-fixed-exercise .m-dim{flex-shrink:0}
+
+/* Chart scrubbing: horizontal finger gesture selects data, vertical scrolling remains available. */
+.m-interactive-chart{touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:crosshair}.m-chart-readout{min-height:34px;display:flex;align-items:center;justify-content:center;text-align:center;background:#1d2b38;border-radius:9px;color:#a8eacb;font-size:13px;font-weight:600;padding:7px 9px;margin-top:12px;font-variant-numeric:tabular-nums}.m-interactive-chart:focus-visible{outline:1px solid #78d9b0;border-radius:8px}
