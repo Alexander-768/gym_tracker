@@ -10,6 +10,7 @@ const GYM_HEAD = ['id','date','exercise','weight_kg','reps','sets','note','creat
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
+    .addMetaTag('viewport', 'width=device-width, initial-scale=1, viewport-fit=cover')
     .setTitle('Gym Tracker');
 }
 function gymRead_() {
