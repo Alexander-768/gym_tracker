@@ -48,4 +48,4 @@ document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>showPage(b.dataset.pa
 $('export').onclick=()=>{const blob=new Blob([JSON.stringify({version:1,exportedAt:new Date().toISOString(),entries},null,2)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='gym-tracker-'+today()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 
 (async()=>{try{db=await openDb();resetForm();await sync()}catch(e){$('storageBadge').textContent='Ошибка хранилища';alert('Не удалось открыть IndexedDB: '+e.message)}})();
-</script><script src="https://accounts.google.com/gsi/client" async defer></script><script src="./sheets.js?v=20261118-20"></script><script src="./history.js?v=20261116-13"></script><script src="./modern.js?v=20261118-24"></script></body></html>
+</script><script src="https://accounts.google.com/gsi/client" async defer></script><script src="./sheets.js?v=20261124-25"></script><script src="./history.js?v=20261116-13"></script><script src="./modern.js?v=20261118-24"></script></body></html>
