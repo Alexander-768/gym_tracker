@@ -75,6 +75,7 @@ window.gymSheetSync=syncNow;
 window.gymSheetReady=()=>ready;
 window.gymLegacyApi={ready:()=>ready};
 window.gymSheetChanged=()=>{void syncNow()};
+if($("syncSheets"))$("syncSheets").disabled=false;
 window.gymSheetDeleted=id=>{const t=tombstones();t[id]=Date.now();localStorage.setItem(tombstoneKey,JSON.stringify(t))};
 $("connectSheets")?.addEventListener("click",()=>void syncNow());
 $("syncSheets")?.addEventListener("click",()=>void syncNow());
@@ -85,7 +86,8 @@ setInterval(()=>{if(!document.hidden&&navigator.onLine)void syncNow()},90000);
 // Older index.html loads IndexedDB asynchronously. Wait for its first successful init.
 let attempts=0;
 const initial=setInterval(()=>{
- if(typeof window.gymEntries==="function"&&window.gymEntries()&&(!HAS_BRIDGE||indexedDB)&&++attempts>=2){
+ // The old app initializes IndexedDB asynchronously; wait for its shared 'db' binding.
+ if(typeof window.gymEntries==="function"&&typeof db!=="undefined"&&db){
   clearInterval(initial);void syncNow();
  }else if(++attempts>=40){clearInterval(initial);quoteStatus("error","Локальная база пока не готова. Обнови страницу.")}
 },250);
