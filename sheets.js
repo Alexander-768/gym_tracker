@@ -4,7 +4,7 @@
 const CLIENT_ID="255537560032-4a6lqi2quocorn0jn0sl5tqlerjfl4br.apps.googleusercontent.com";
 const SPREADSHEET_ID="1IrLRJVWarQJt-ALBO4GObIJrEopxfnBa4I9xRcQ2XRs";
 const TAB="gym_tracker_app";
-const SYNC_VERSION="2026-11-18.20";
+const SYNC_VERSION="2026-11-24.25";
 window.gymSyncVersion=SYNC_VERSION;
 const HEADERS=["id","date","exercise","weight_kg","reps","sets","note","created_at","updated_at","deleted_at","category"];
 const SCOPE="https://www.googleapis.com/auth/spreadsheets";
@@ -12,7 +12,7 @@ const $=id=>document.getElementById(id);
 let accessToken=null,expiresAt=0,client=null,busy=false,needsResync=false,writeQueue=Promise.resolve();
 const status=msg=>{if($("sheetsStatus"))$("sheetsStatus").textContent=msg;};
 function publishSync(state,message){
- window.gymSyncState={state,message:message+" · синхр. v20",at:Date.now()};
+ window.gymSyncState={state,message:message+" · синхр. v25",at:Date.now()};
  window.dispatchEvent(new CustomEvent("gym-sync-status",{detail:window.gymSyncState}));
  status(window.gymSyncState.message);
 }
@@ -113,7 +113,9 @@ async function syncNow(){
 
 
 const connectedBeforeKey="gym_google_previously_connected_v1";
-let authRequestInFlight=false,autoAuthAttempted=false;
+const AUTO_RETRY_MS=10*60*1000;
+let authRequestInFlight=false,lastSilentAttempt=0;
+const tokenValid=()=>Boolean(accessToken&&Date.now()<expiresAt);
 function setupClient(){
  if(client)return true;
  if(!window.google?.accounts?.oauth2)return false;
@@ -121,15 +123,16 @@ function setupClient(){
   client_id:CLIENT_ID,scope:SCOPE,
   error_callback:error=>{
    authRequestInFlight=false;
-   status("Google не разрешил автоматический вход ("+(error?.type||"окно заблокировано")+"). Нажми «Подключить Google».");
+   publishSync("auth","Google не разрешил автоматический вход ("+(error?.type||"окно заблокировано")+"). Нажми «Подключить Google» в настройках.");
   },
   callback:async response=>{
    authRequestInFlight=false;
    if(response.error||!response.access_token){
-    status("Требуется повторное подключение Google: "+(response.error||"нет токена"));
+    publishSync("auth","Требуется повторное подключение Google: "+(response.error||"нет токена"));
     return;
    }
    accessToken=response.access_token;
+   lastSilentAttempt=0;
    publishSync("syncing","Доступ к Google получен. Синхронизирую...");
    expiresAt=Date.now()+(Number(response.expires_in)||3500)*1000-60000;
    localStorage.setItem(connectedBeforeKey,"yes");
@@ -144,48 +147,52 @@ function setupClient(){
  return true;
 }
 function requestToken(automatic=false){
- if(authRequestInFlight)return;
+ if(authRequestInFlight||automatic&&tokenValid())return;
  if(!setupClient()){
-  status("Не загрузилась авторизация Google. Проверь подключение к интернету.");
+  publishSync("auth","Не загрузилась авторизация Google. Проверь интернет или подключись в настройках.");
   return;
  }
  authRequestInFlight=true;
- if(automatic)status("Пробую автоматически подключить Google...");
+ if(automatic)publishSync("syncing","Восстанавливаю подключение Google автоматически...");
  try{client.requestAccessToken({prompt:automatic?"none":""});}
- catch(err){authRequestInFlight=false;status("Для подключения Google нажми кнопку: "+err.message);}
+ catch(err){authRequestInFlight=false;publishSync("auth","Не удалось подключиться автоматически: "+err.message+". Открой настройки.");}
 }
 function connect(){requestToken(false);}
 window.gymSheetConnect=connect;
-window.gymSheetReady=()=>Boolean(accessToken&&Date.now()<expiresAt);
-function autoConnect(){
- if(autoAuthAttempted||!navigator.onLine||localStorage.getItem(connectedBeforeKey)!=="yes")return;
+window.gymSheetReady=tokenValid;
+function autoConnect(force=false){
+ if(tokenValid()||authRequestInFlight||!navigator.onLine||localStorage.getItem(connectedBeforeKey)!=="yes")return;
  if(!window.google?.accounts?.oauth2)return;
- autoAuthAttempted=true;
+ if(!force&&Date.now()-lastSilentAttempt<AUTO_RETRY_MS)return;
+ lastSilentAttempt=Date.now();
  requestToken(true);
 }
+// Silent reconnection is best-effort; a browser may require the user to click.
+// Only the previous-consent flag persists; OAuth access tokens stay in memory.
 if(localStorage.getItem(connectedBeforeKey)==="yes"){
- // GIS is loaded asynchronously; retry initialization briefly without launching repeated popups.
  let tries=0;
  const ready=setInterval(()=>{
-  if(++tries>30||autoAuthAttempted){clearInterval(ready);return;}
-  if(window.google?.accounts?.oauth2){clearInterval(ready);autoConnect();}
- },300);
- window.addEventListener("online",()=>{if(!accessToken)autoConnect();});
+  if(++tries>60||tokenValid()){clearInterval(ready);return;}
+  if(window.google?.accounts?.oauth2){clearInterval(ready);autoConnect(true);}
+ },250);
 }
-
-window.gymLegacyApi={ready:()=>Boolean(accessToken&&Date.now()<expiresAt)};
+window.gymLegacyApi={ready:tokenValid};
 let lastAuto=0;
 async function autoRefresh(){
- if(!accessToken||Date.now()>expiresAt||document.hidden||Date.now()-lastAuto<60000)return;
- lastAuto=Date.now();await syncNow();
+ if(document.hidden||!navigator.onLine)return;
+ if(!tokenValid()){autoConnect();return;}
+ if(Date.now()-lastAuto<60000)return;
+ lastAuto=Date.now();
+ await syncNow();
 }
 document.addEventListener("visibilitychange",()=>{if(!document.hidden)void autoRefresh()});
 window.addEventListener("online",()=>{void autoRefresh()});
+window.addEventListener("focus",()=>{void autoRefresh()});
 setInterval(()=>{void autoRefresh()},90000);
 
 window.gymSheetDeleted=markDelete;
 window.gymSheetChanged=()=>{
- if(!accessToken||Date.now()>expiresAt){publishSync("auth","Запись сохранена локально — подключи Google для отправки.");return;}
+ if(!tokenValid()){publishSync("auth","Запись сохранена локально. Пытаюсь подключить Google...");autoConnect();return;}
  writeQueue=writeQueue.then(()=>syncNow()).catch(e=>publishSync("error","Ошибка синхронизации: "+e.message));
 };
 window.gymSheetSync=syncNow;
